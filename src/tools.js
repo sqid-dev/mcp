@@ -31,7 +31,7 @@ export const snippetFor = (sdkId) => `<script>
 })('${sdkId}');
 </script>`;
 
-const siteRow = (p) => ({ id : String(p._id), name : p.name, enabled : p.enabled !== false, deployed : !!p.state?.deployed, connected : !!p.state?.connected, sandbox : !!p.sandbox, owner : p.owner?.email || null });
+const siteRow = (p) => ({ id : String(p._id), name : p.name, origins : p.site_origins || p.origins || undefined, enabled : p.enabled !== false, deployed : !!p.state?.deployed, connected : !!p.state?.connected, sandbox : !!p.sandbox, owner : p.owner?.email || null });
 
 async function sites(token){ return ((await api(token, 'GET', '/api/sqid/projects')) || []).map(siteRow); }
 async function site(token, id){
@@ -53,7 +53,7 @@ const siteArg = { site_id : z.string().optional().describe('Site id or name. Omi
 const READ  = { readOnlyHint : true,  destructiveHint : false, idempotentHint : true,  openWorldHint : false };
 const WRITE = { readOnlyHint : false, destructiveHint : false, idempotentHint : false, openWorldHint : false };
 
-const TITLES = {"get_started": "Get started", "list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "whoami": "Who am I"};
+const TITLES = {"get_started": "Get started", "set_site_origins": "Set site origins", "list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "whoami": "Who am I"};
 
 function tool(server, name, description, schema, fn, annotations = READ){
   server.registerTool(name, { title : TITLES[name] || name, description, inputSchema : schema, annotations : { title : TITLES[name] || name, ...annotations } }, async (args, extra) => {
@@ -71,13 +71,17 @@ export function registerTools(server){
     if(!me.account?.hasSubscription){ started = await api(t, 'POST', '/api/sqid/billing/start', {}); }
     let all = await sites(t);
     let sandbox = all.find(s => s.sandbox) || null;
+    if(!sandbox){
+      // Accounts invited before self-serve have no Sandbox; the console route makes one (idempotent).
+      try{ let made = await api(t, 'POST', '/api/sqid/sandbox', {}); if(made?.sdk_id){ all = await sites(t); sandbox = all.find(s => s.id === String(made.sdk_id)) || all.find(s => s.sandbox) || null; } }catch(error){ /* no sandbox for this account; the website path still works */ }
+    }
     let real = all.filter(s => !s.sandbox);
     return ok({
       account : { email : me.email, plan_started_now : !!started, plan : started?.plan || (me.account?.hasSubscription ? 'existing' : null) },
-      sandbox : sandbox ? { ...sandbox, snippet : snippetFor(sandbox.id), note : 'The Sandbox is a test site: page views and events flow, nobody is identified and nothing is charged. Put the snippet on a local or staging page to see the SDK connect.' } : null,
+      sandbox : sandbox ? { ...sandbox, snippet : snippetFor(sandbox.id), origins_set : (sandbox.origins || []).length > 0, note : 'The Sandbox is a test site: events flow, each visitor gets a made-up identity, nothing is charged, nothing reaches a real data source. It starts with no allowed origins: call set_site_origins with the local or staging URL (e.g. http://localhost:3000) before the snippet will load there.' } : null,
       sites : real,
       paths : [
-        { id : 'sandbox', title : 'Try it in the Sandbox first', steps : ['get_snippet for the Sandbox site, paste it in a local or staging page, open the page', 'add_webhook to a public https endpoint (any catcher works), preview_webhook to see the payload, test_webhook to send one', 'get_site_status to confirm the Sandbox connected'] },
+        { id : 'sandbox', title : 'Try it in the Sandbox first', steps : ['ask for the local or staging URL and call set_site_origins on the Sandbox with it', 'get_snippet for the Sandbox site, paste it in that page, open the page', 'add_webhook to a public https endpoint (any catcher works), preview_webhook to see the payload, test_webhook to send one', 'get_site_status to confirm the Sandbox connected'] },
         { id : 'website', title : 'Set up a real website', steps : ['create_site with the site name and public URL', 'paste the snippet before </head> in the layout and deploy', 'ask which outcome they want: identified visitors (add_webhook, default), on-demand visitors (list_visitors), moments to an agent (set_signals + add_webhook event moment), or browser personalisation', 'get_site_status after the first visit: the stream is live'] }
       ]
     }, [
@@ -104,6 +108,13 @@ export function registerTools(server){
       { tool : 'add_webhook', when : 'to send visitor intent moments to an agent (event moment)' },
       { tool : 'get_site_status', when : 'after the snippet is deployed and the site opened once' }
     ]);
+  }, WRITE);
+
+  tool(server, 'set_site_origins', 'Set the allowed origins of a site: the URLs the snippet may load on, e.g. ["https://example.com"] or, for the Sandbox, ["http://localhost:3000"]. Replaces the list.', { ...siteArg, origins : z.array(z.string().url()).min(1) }, async ({ site_id, origins }, t) => {
+    let s = await site(t, site_id);
+    let o = origins.map(u => new URL(u).origin);
+    let r = await api(t, 'PATCH', `/api/projects/${s.id}`, { name : s.name, site_origins : o, product_origins : o });
+    return ok({ site : { id : s.id, name : s.name }, origins : o, result : r?.site_origins ? undefined : r }, [{ tool : 'get_snippet', when : 'to get the snippet for this site', args : { site_id : s.id } }]);
   }, WRITE);
 
   tool(server, 'get_snippet', 'The install snippet for a site: the one script tag that goes before </head> on every page of the site.', siteArg, async ({ site_id }, t) => { let s = await site(t, site_id); return ok({ site : s, snippet : snippetFor(s.id) }); });

@@ -18,7 +18,7 @@ visitors, enrich_contact a contact, read moments and billing, as the person who 
 |---|---|
 | `get_started` | The guided entry point: starts the free plan if needed, returns the Sandbox site with its snippet, real sites, and the two paths (Sandbox first, or a real website) |
 | `whoami` | Who approved the connection, role, plan present |
-| `list_sites`, `create_site`, `get_snippet`, `get_site_status` | Sites, the install snippet, the "stream is live" check |
+| `list_sites`, `create_site`, `set_site_origins`, `get_snippet`, `get_site_status` | Sites, their allowed origins, the install snippet, the "stream is live" check |
 | `add_webhook` (default event `identification`), `list_webhooks`, `preview_webhook`, `test_webhook` | Where identified visitors (or moments, pages, clicks) are delivered |
 | `list_visitors`, `get_visitor` | Identified visitors on demand |
 | `enrich_contact` | Email, phone or LinkedIn URL to a full record |
@@ -28,7 +28,7 @@ visitors, enrich_contact a contact, read moments and billing, as the person who 
 Card entry and plan changes are not tools. They happen in the console or the CLI.
 
 Every tool carries MCP annotations: reads are `readOnlyHint: true`, the five that change
-things (`create_site`, `add_webhook`, `test_webhook`, `enrich_contact`, `set_signals`) are not, and
+things (`get_started`, `create_site`, `set_site_origins`, `add_webhook`, `test_webhook`, `enrich_contact`, `set_signals`) are not, and
 nothing is marked destructive because no tool deletes. Clients such as Claude Code use
 these to decide what needs a confirmation.
 

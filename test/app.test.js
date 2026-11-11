@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-let upstream, seen = [], app, server, base, started = true;
+let upstream, seen = [], app, server, base, started = true, sandboxMade = false;
 
 before(async () => {
   upstream = http.createServer(async (req, res) => {
@@ -15,7 +15,9 @@ before(async () => {
     let P = u.pathname;
     if(P === '/api/sqid/me'){ return res.end(JSON.stringify({ email : 'dev@acme.com', role : 'owner', account : { hasSubscription : !!started } })); }
     if(P === '/api/sqid/billing/start' && req.method === 'POST'){ started = true; return res.end(JSON.stringify({ started : true, plan : 'developer', sandbox_sdk_id : 'sbx1' })); }
-    if(P === '/api/sqid/projects'){ return res.end(JSON.stringify([{ _id : 'sdk1', name : 'Acme', state : { deployed : true, connected : true } }, ...(started ? [{ _id : 'sbx1', name : 'Sandbox', sandbox : true, state : {} }] : [])])); }
+    if(P === '/api/sqid/sandbox' && req.method === 'POST'){ sandboxMade = true; return res.end(JSON.stringify({ sdk_id : 'sbx1', created : true })); }
+    if(P === '/api/projects/sbx1' && req.method === 'PATCH'){ return res.end(JSON.stringify({ _id : 'sbx1', site_origins : JSON.parse(b).site_origins })); }
+    if(P === '/api/sqid/projects'){ return res.end(JSON.stringify([{ _id : 'sdk1', name : 'Acme', state : { deployed : true, connected : true } }, ...(started && sandboxMade ? [{ _id : 'sbx1', name : 'Sandbox', sandbox : true, state : {} }] : [])])); }
     if(P === '/api/sqid/sdks/sdk1/webhooks'){ return res.end(JSON.stringify([{ id : 'wh1', name : 'x', namespace : 'visitor.identification.created.v2', url : 'https://a.test/h', enabled : true, health : { status : 'healthy' } }])); }
     if(P === '/api/v2/projects/sdk1/webhook' && req.method === 'POST'){ return res.end(JSON.stringify({ _id : 'wh2' })); }
     if(P === '/api/v2/projects/sdk1/webhook/preview'){ return res.end(JSON.stringify({ id : 'evt', data : { visitor : { id : 'v1' } } })); }
@@ -65,7 +67,7 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
   let transport = new StreamableHTTPClientTransport(new URL(base + '/mcp'), { requestInit : { headers : { authorization : 'Bearer good' } } });
   await client.connect(transport);
   let tools = (await client.listTools()).tools.map(t => t.name).sort();
-  assert.deepEqual(tools, ['add_webhook', 'create_site', 'enrich_contact', 'get_billing_status', 'get_signals_status', 'get_site_status', 'get_snippet', 'get_started', 'get_visitor', 'list_moments', 'list_sites', 'list_visitors', 'list_webhooks', 'preview_webhook', 'set_signals', 'test_webhook', 'whoami']);
+  assert.deepEqual(tools, ['add_webhook', 'create_site', 'enrich_contact', 'get_billing_status', 'get_signals_status', 'get_site_status', 'get_snippet', 'get_started', 'get_visitor', 'list_moments', 'list_sites', 'list_visitors', 'list_webhooks', 'preview_webhook', 'set_signals', 'set_site_origins', 'test_webhook', 'whoami']);
   let prompts = (await client.listPrompts()).prompts.map(p => p.name);
   assert.deepEqual(prompts, ['setup']);
   let pr = await client.getPrompt({ name : 'setup', arguments : {} });
@@ -74,7 +76,11 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
   started = false;
   let gs = JSON.parse((await client.callTool({ name : 'get_started', arguments : {} })).content[0].text);
   assert.equal(gs.data.account.plan_started_now, true, 'no plan: Start free is called');
-  assert.equal(gs.data.sandbox.id, 'sbx1'); assert.match(gs.data.sandbox.snippet, /sbx1/);
+  assert.equal(gs.data.sandbox.id, 'sbx1', 'no sandbox on the account: POST /api/sqid/sandbox makes one'); assert.match(gs.data.sandbox.snippet, /sbx1/);
+  assert.ok(seen.some(r => r.method === 'POST' && r.path === '/api/sqid/sandbox'));
+  let so = JSON.parse((await client.callTool({ name : 'set_site_origins', arguments : { site_id : 'sbx1', origins : ['http://localhost:3000/some/path'] } })).content[0].text);
+  assert.deepEqual(so.data.origins, ['http://localhost:3000']);
+  assert.deepEqual(seen.filter(r => r.method === 'PATCH' && r.path === '/api/projects/sbx1').pop().body, { name : 'Sandbox', site_origins : ['http://localhost:3000'], product_origins : ['http://localhost:3000'] });
   assert.deepEqual(gs.data.paths.map(p => p.id), ['sandbox', 'website']);
   assert.ok(seen.some(r => r.method === 'POST' && r.path === '/api/sqid/billing/start'));
   let gs2 = JSON.parse((await client.callTool({ name : 'get_started', arguments : {} })).content[0].text);
