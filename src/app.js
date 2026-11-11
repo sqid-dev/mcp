@@ -7,7 +7,10 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { env } from 'hono/adapter';
+import { env as runtimeEnv } from 'hono/adapter';
+
+// Bindings on Workers (c.env), process.env on Node; tests pass bindings through app.request's third argument.
+const env = (c) => ({ ...(typeof process !== 'undefined' && process.env ? process.env : {}), ...(runtimeEnv(c) || {}), ...(c.env || {}) });
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { protectedResourceHandlerClerk, authServerMetadataHandlerClerk, streamableHttpHandler } from '@clerk/mcp-tools/hono';
 import { registerTools } from './tools.js';
