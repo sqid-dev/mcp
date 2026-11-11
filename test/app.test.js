@@ -57,39 +57,39 @@ test('rate limit: a tripped per-IP limiter answers 429 before auth', async () =>
   assert.equal(ok.status, 401, 'under the limit the normal challenge follows');
 });
 
-test('tools: list, whoami forwards the token, webhook_add defaults to identification, preview, visitors_list', async () => {
+test('tools: list, whoami forwards the token, add_webhook defaults to identification, preview, list_visitors', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   let client = new Client({ name : 'test', version : '0' });
   let transport = new StreamableHTTPClientTransport(new URL(base + '/mcp'), { requestInit : { headers : { authorization : 'Bearer good' } } });
   await client.connect(transport);
   let tools = (await client.listTools()).tools.map(t => t.name).sort();
-  assert.deepEqual(tools, ['billing_status', 'enrich', 'moments_list', 'signals_set', 'signals_status', 'site_create', 'site_status', 'sites_list', 'snippet_get', 'visitor_get', 'visitors_list', 'webhook_add', 'webhook_list', 'webhook_preview', 'webhook_test', 'whoami']);
+  assert.deepEqual(tools, ['add_webhook', 'create_site', 'enrich_contact', 'get_billing_status', 'get_signals_status', 'get_site_status', 'get_snippet', 'get_visitor', 'list_moments', 'list_sites', 'list_visitors', 'list_webhooks', 'preview_webhook', 'set_signals', 'test_webhook', 'whoami']);
   let all = (await client.listTools()).tools; let ro = (n) => all.find(t => t.name === n).annotations.readOnlyHint;
-  assert.equal(ro('signals_status'), true); assert.equal(ro('sites_list'), true); assert.equal(ro('signals_set'), false); assert.equal(ro('webhook_add'), false); assert.equal(ro('site_create'), false);
+  assert.equal(ro('get_signals_status'), true); assert.equal(ro('list_sites'), true); assert.equal(ro('set_signals'), false); assert.equal(ro('add_webhook'), false); assert.equal(ro('create_site'), false);
 
   let who = JSON.parse((await client.callTool({ name : 'whoami', arguments : {} })).content[0].text);
   assert.equal(who.data.email, 'dev@acme.com');
   assert.equal(seen.find(r => r.path === '/api/sqid/me').auth, 'Bearer mt_fake_user_1', 'upstream sees the machine token for the verified user, never the client token');
   assert.ok(!seen.some(r => r.auth === 'Bearer good'), 'the MCP client token is never passed through');
 
-  let add = JSON.parse((await client.callTool({ name : 'webhook_add', arguments : { url : 'https://acme.test/api/visitors' } })).content[0].text);
+  let add = JSON.parse((await client.callTool({ name : 'add_webhook', arguments : { url : 'https://acme.test/api/visitors' } })).content[0].text);
   assert.equal(add.data.event, 'identification'); assert.equal(add.data.id, 'wh2');
   let post = seen.find(r => r.method === 'POST' && r.path === '/api/v2/projects/sdk1/webhook');
   assert.equal(post.body.namespace, 'visitor.identification.created.v2');
 
-  let pv = JSON.parse((await client.callTool({ name : 'webhook_preview', arguments : {} })).content[0].text);
+  let pv = JSON.parse((await client.callTool({ name : 'preview_webhook', arguments : {} })).content[0].text);
   assert.equal(pv.data.payload.data.visitor.id, 'v1');
 
-  let vl = JSON.parse((await client.callTool({ name : 'visitors_list', arguments : { search : 'nor' } })).content[0].text);
+  let vl = JSON.parse((await client.callTool({ name : 'list_visitors', arguments : { search : 'nor' } })).content[0].text);
   assert.equal(vl.data.visitors[0].email, 'j@n.test');
 
-  let st = JSON.parse((await client.callTool({ name : 'site_status', arguments : {} })).content[0].text);
+  let st = JSON.parse((await client.callTool({ name : 'get_site_status', arguments : {} })).content[0].text);
   assert.equal(st.data.stream_is_live, true);
 
-  let httpBad = await client.callTool({ name : 'webhook_add', arguments : { url : 'https://acme.test/x', event : 'moment' } });
+  let httpBad = await client.callTool({ name : 'add_webhook', arguments : { url : 'https://acme.test/x', event : 'moment' } });
   assert.equal(JSON.parse(httpBad.content[0].text).ok, true);
-  let nf = await client.callTool({ name : 'webhook_test', arguments : { webhook_id : 'nope' } });
+  let nf = await client.callTool({ name : 'test_webhook', arguments : { webhook_id : 'nope' } });
   assert.equal(nf.isError, true); assert.equal(JSON.parse(nf.content[0].text).error.code, 'webhook_not_found');
   assert.deepEqual(app.minted, ['user_1'], 'one machine token per person, cached');
   await client.close();

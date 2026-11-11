@@ -10,24 +10,24 @@ claude mcp add --transport http sqid https://mcp.sqid.dev/mcp
 
 The first call opens a browser to sign in to Sqid and approve the connection. After
 that the agent can create a site, get the snippet, wire webhooks, list identified
-visitors, enrich a contact, read moments and billing, as the person who approved it.
+visitors, enrich_contact a contact, read moments and billing, as the person who approved it.
 
 ## Tools
 
 | Tool | Does |
 |---|---|
 | `whoami` | Who approved the connection, role, plan present |
-| `sites_list`, `site_create`, `snippet_get`, `site_status` | Sites, the install snippet, the "stream is live" check |
-| `webhook_add` (default event `identification`), `webhook_list`, `webhook_preview`, `webhook_test` | Where identified visitors (or moments, pages, clicks) are delivered |
-| `visitors_list`, `visitor_get` | Identified visitors on demand |
-| `enrich` | Email, phone or LinkedIn URL to a full record |
-| `signals_status`, `signals_set`, `moments_list` | Signals state, on or off, recent moments |
-| `billing_status` | Plan, card, balance, this month |
+| `list_sites`, `create_site`, `get_snippet`, `get_site_status` | Sites, the install snippet, the "stream is live" check |
+| `add_webhook` (default event `identification`), `list_webhooks`, `preview_webhook`, `test_webhook` | Where identified visitors (or moments, pages, clicks) are delivered |
+| `list_visitors`, `get_visitor` | Identified visitors on demand |
+| `enrich_contact` | Email, phone or LinkedIn URL to a full record |
+| `get_signals_status`, `set_signals`, `list_moments` | Signals state, on or off, recent moments |
+| `get_billing_status` | Plan, card, balance, this month |
 
 Card entry and plan changes are not tools. They happen in the console or the CLI.
 
 Every tool carries MCP annotations: reads are `readOnlyHint: true`, the five that change
-things (`site_create`, `webhook_add`, `webhook_test`, `enrich`, `signals_set`) are not, and
+things (`create_site`, `add_webhook`, `test_webhook`, `enrich_contact`, `set_signals`) are not, and
 nothing is marked destructive because no tool deletes. Clients such as Claude Code use
 these to decide what needs a confirmation.
 

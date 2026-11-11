@@ -22,7 +22,7 @@ const SCOPES = ['profile', 'email'];
 const resourceUrl = (e) => e.MCP_RESOURCE_URL || `http://localhost:${e.PORT || 8787}/mcp`;
 
 function createServer(){
-  let server = new McpServer({ name : 'sqid', version : '0.1.0' }, { instructions : 'Sqid identifies the people visiting a website. Start with sites_list (or site_create for a new app). The first-class outcome is knowing who is on the site: webhook_add with event "identification" (the default) or visitors_list on demand. Moments (event "moment") are for agents that react to intent. Use webhook_preview to see exact payloads before writing a handler, and site_status to confirm the stream is live. Never hand-write the install snippet; snippet_get returns it.' });
+  let server = new McpServer({ name : 'sqid', version : '0.1.0' }, { instructions : 'Sqid identifies the people visiting a website. Start with list_sites (or create_site for a new app). The first-class outcome is knowing who is on the site: add_webhook with event "identification" (the default) or list_visitors on demand. Moments (event "moment") are for agents that react to intent. Use preview_webhook to see exact payloads before writing a handler, and get_site_status to confirm the stream is live. Never hand-write the install snippet; get_snippet returns it.' });
   registerTools(server);
   return server;
 }
