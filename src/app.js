@@ -11,6 +11,8 @@ import { env as runtimeEnv } from 'hono/adapter';
 
 // Bindings on Workers (c.env), process.env on Node; tests pass bindings through app.request's third argument.
 const env = (c) => ({ ...(typeof process !== 'undefined' && process.env ? process.env : {}), ...(runtimeEnv(c) || {}), ...(c.env || {}) });
+// Bindings are read straight off c.env: spreading the env object can lose non-plain bindings.
+const binding = (c, name) => c.env?.[name] ?? runtimeEnv(c)?.[name];
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { protectedResourceHandlerClerk, authServerMetadataHandlerClerk, streamableHttpHandler } from '@clerk/mcp-tools/hono';
 import { registerTools } from './tools.js';
@@ -40,9 +42,10 @@ export async function clerkVerify(token, c){
 
 // Rate limits (Workers Rate Limiting bindings; absent on Node, where this is a no-op).
 // Unauthenticated hits are limited per IP before any work; authenticated calls per person.
-async function limited(binding, key){
-  if(!binding || !key){ return false; }
-  try{ let { success } = await binding.limit({ key }); return !success; }catch(error){ return false; }
+async function limited(rl, key){
+  if(!rl || !key){ return false; }
+  try{ let { success } = await rl.limit({ key }); return !success; }
+  catch(error){ console.log('rate limit binding failed', String(error?.message || error)); return false; }
 }
 const tooMany = (c) => c.json({ error : 'rate_limited', error_description : 'Too many requests. Slow down and retry.' }, 429, { 'Retry-After' : '10' });
 
@@ -54,7 +57,7 @@ function requireAuth(verify){
     let prm = `${new URL(resourceUrl(e)).origin}/.well-known/oauth-protected-resource/mcp`;
     let challenge = `Bearer resource_metadata="${prm}", scope="${SCOPES.join(' ')}"`;
     let ip = c.req.header('cf-connecting-ip') || 'unknown';
-    if(await limited(e.RL_IP, ip)){ return tooMany(c); }
+    if(await limited(binding(c, 'RL_IP'), ip)){ return tooMany(c); }
     let m = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') || '');
     if(!m){ return c.json({ error : 'unauthorized', error_description : 'Bearer token required' }, 401, { 'WWW-Authenticate' : challenge }); }
     let info;
@@ -62,7 +65,7 @@ function requireAuth(verify){
     if(!info){ return c.json({ error : 'invalid_token' }, 401, { 'WWW-Authenticate' : `${challenge}, error="invalid_token"` }); }
     let missing = SCOPES.filter(sc => Array.isArray(info.scopes) && info.scopes.length && !info.scopes.includes(sc));
     if(missing.length){ return c.json({ error : 'insufficient_scope' }, 403, { 'WWW-Authenticate' : `${challenge}, error="insufficient_scope"` }); }
-    if(await limited(e.RL_USER, info.extra?.userId || info.userId || ip)){ return tooMany(c); }
+    if(await limited(binding(c, 'RL_USER'), info.extra?.userId || info.userId || ip)){ return tooMany(c); }
     c.set('mcpAuth', info);
     await next();
   };
