@@ -27,10 +27,11 @@ before(async () => {
   process.env.CLERK_PUBLISHABLE_KEY = 'pk_test_' + Buffer.from('clerk.example.test$').toString('base64');
   process.env.CLERK_SECRET_KEY = 'sk_test_x';
   const { createApp } = await import('../src/app.js');
+  const { serve } = await import('@hono/node-server');
   let minted = [];
-  app = await createApp({ verify : async (token) => token === 'good' ? { token, clientId : 'c1', scopes : ['email', 'profile'], extra : { userId : 'user_1' } } : undefined, mint : async (userId) => { minted.push(userId); return 'mt_fake_' + userId; } });
-  app.locals.minted = minted;
-  server = app.listen(0, '127.0.0.1');
+  app = createApp({ verify : async (token) => token === 'good' ? { token, clientId : 'c1', scopes : ['email', 'profile'], extra : { userId : 'user_1' } } : undefined, mint : async (userId) => { minted.push(userId); return 'mt_fake_' + userId; } });
+  app.minted = minted;
+  server = serve({ fetch : app.fetch, port : 0, hostname : '127.0.0.1' });
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -77,6 +78,6 @@ test('tools: list, whoami forwards the token, webhook_add defaults to identifica
   assert.equal(JSON.parse(httpBad.content[0].text).ok, true);
   let nf = await client.callTool({ name : 'webhook_test', arguments : { webhook_id : 'nope' } });
   assert.equal(nf.isError, true); assert.equal(JSON.parse(nf.content[0].text).error.code, 'webhook_not_found');
-  assert.deepEqual(app.locals.minted, ['user_1'], 'one machine token per person, cached');
+  assert.deepEqual(app.minted, ['user_1'], 'one machine token per person, cached');
   await client.close();
 });

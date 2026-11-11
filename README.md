@@ -43,15 +43,27 @@ those tokens in memory.
 
 ## Run
 
+It is a Cloudflare Worker (`src/worker.js`, `wrangler.jsonc`), served at `mcp.sqid.dev`.
+The same app also runs on Node (`src/server.js`) for local runs and tests.
+
 ```sh
-cp .env.example .env     # Clerk keys, MCP_RESOURCE_URL, SQID_API
 npm install
-npm start                 # or: npm run dev
-npm test                  # offline: fake Sqid API, real MCP client
+npm test                       # offline: fake Sqid API, real MCP client
+cp .env.example .dev.vars      # local secrets for wrangler dev (never committed)
+npm run dev                    # wrangler dev on http://localhost:8787
+npm run check                  # wrangler deploy --dry-run
+npm run deploy                 # wrangler deploy
 ```
 
-Docker: `docker build -t sqid-mcp . && docker run --env-file .env -p 8787:8787 sqid-mcp`.
-Health: `GET /alive`.
+Secrets are set once per Worker and never live in the repo:
+
+```sh
+wrangler secret put CLERK_PUBLISHABLE_KEY
+wrangler secret put CLERK_SECRET_KEY
+wrangler secret put MCP_MACHINE_SECRET_KEY
+```
+
+Health: `GET /alive`. Logs: `wrangler tail`.
 
 ## Registering with Clerk
 

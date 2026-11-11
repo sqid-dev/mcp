@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sqid-mcp",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "MCP_RESOURCE_URL": "https://mcp.sqid.dev/mcp",
+    "SQID_API": "https://app.sqid.dev",
+    "SQID_PUBLIC_API": "https://app.asksquid.ai/api/v1"
+  },
+  "routes": [{ "pattern": "mcp.sqid.dev", "custom_domain": true }]
+  // Secrets, set once with `wrangler secret put`: CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY, MCP_MACHINE_SECRET_KEY
+}

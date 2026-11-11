@@ -5,22 +5,28 @@
   "description": "Sqid's hosted MCP server: the same actions as the sqid CLI, for AI editors and agents. OAuth through Sqid's Clerk instance.",
   "license": "MIT",
   "type": "module",
-  "main": "src/server.js",
+  "main": "src/worker.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch --env-file=.env src/server.js",
-    "test": "node --test test/*.test.js"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js",
+    "check": "wrangler deploy --dry-run"
   },
   "dependencies": {
     "@clerk/backend": "^3.27.0",
     "@clerk/express": "^2.1.88",
+    "@clerk/hono": "^0.1.98",
     "@clerk/mcp-tools": "^0.9.0",
+    "@hono/node-server": "^2.1.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
+    "hono": "^4.13.18",
     "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.160.1"
   }
 }

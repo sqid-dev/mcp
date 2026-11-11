@@ -5,8 +5,10 @@
 // that machine (clerk.mcpMachineIds) and acts as that person. One token per person,
 // cached until shortly before it expires. Nothing else is stored server-side.
 
-export const SQID_API    = process.env.SQID_API || 'https://app.sqid.dev';
-export const PUBLIC_API  = process.env.SQID_PUBLIC_API || 'https://app.asksquid.ai/api/v1';
+// On Workers these arrive as bindings per request (configure(env)); on Node from process.env.
+const cfg = { SQID_API : 'https://app.sqid.dev', SQID_PUBLIC_API : 'https://app.asksquid.ai/api/v1', CLERK_SECRET_KEY : undefined, MCP_MACHINE_SECRET_KEY : undefined };
+export function configure(e = {}){ for(let k of Object.keys(cfg)){ if(e[k]){ cfg[k] = e[k]; } } }
+if(typeof process !== 'undefined' && process.env){ configure(process.env); }
 const TOKEN_TTL_S = 3600;
 
 let _mint = null;                                     // (userId) => Promise<string>; injectable for tests
@@ -14,8 +16,8 @@ export function setMinter(fn){ _mint = fn; }
 
 async function clerkMint(userId){
   const { createClerkClient } = await import('@clerk/backend');
-  let clerk = createClerkClient({ secretKey : process.env.CLERK_SECRET_KEY });
-  let t = await clerk.m2m.createToken({ machineSecretKey : process.env.MCP_MACHINE_SECRET_KEY, secondsUntilExpiration : TOKEN_TTL_S, claims : { acting_user : userId } });
+  let clerk = createClerkClient({ secretKey : cfg.CLERK_SECRET_KEY });
+  let t = await clerk.m2m.createToken({ machineSecretKey : cfg.MCP_MACHINE_SECRET_KEY, secondsUntilExpiration : TOKEN_TTL_S, claims : { acting_user : userId } });
   return t.token;
 }
 
@@ -36,7 +38,7 @@ export class UpstreamError extends Error {
 
 export async function api(userId, method, path, body){
   let token = await machineToken(userId);
-  let res = await fetch(SQID_API + path, {
+  let res = await fetch(cfg.SQID_API + path, {
     method,
     headers : { authorization : `Bearer ${token}`, accept : 'application/json', 'user-agent' : 'sqid-mcp', ...(body ? { 'content-type' : 'application/json' } : {}) },
     body    : body ? JSON.stringify(body) : undefined
@@ -49,7 +51,7 @@ export async function api(userId, method, path, body){
 }
 
 export async function publicApi(key, method, path, body){
-  let res = await fetch(PUBLIC_API + path, {
+  let res = await fetch(cfg.SQID_PUBLIC_API + path, {
     method,
     headers : { authorization : `Bearer ${key}`, accept : 'application/json', 'user-agent' : 'sqid-mcp', ...(body ? { 'content-type' : 'application/json' } : {}) },
     body    : body ? JSON.stringify(body) : undefined

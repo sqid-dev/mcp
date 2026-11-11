@@ -164,6 +164,6 @@ export function registerTools(server){
   tool(server, 'billing_status', 'Plan, card on file, balance, auto-reload and this month’s identifications. Card entry and plan changes happen in the console or the sqid CLI, never here.', {}, async (_, t) => {
     let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing'), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
     let card = (overview?.cards || []).find(c => c.default) || overview?.cards?.[0] || null;
-    return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, balance : account?.balance ?? null, auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : `${process.env.SQID_API || 'https://app.sqid.dev'}/billing` });
+    return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, balance : account?.balance ?? null, auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : 'https://app.sqid.dev/billing' });
   });
 }
