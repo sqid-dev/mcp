@@ -41,7 +41,9 @@ test('metadata: protected resource points at the resource URL; no token is 401 w
   let prm = await (await fetch(base + '/.well-known/oauth-protected-resource')).json();
   assert.ok(prm.resource); assert.deepEqual(prm.scopes_supported, ['profile', 'email']); assert.ok(Array.isArray(prm.authorization_servers));
   let r = await fetch(base + '/mcp', { method : 'POST', headers : { 'content-type' : 'application/json' }, body : '{}' });
-  assert.equal(r.status, 401); assert.match(r.headers.get('www-authenticate') || '', /resource_metadata=/);
+  assert.equal(r.status, 401); assert.match(r.headers.get('www-authenticate') || '', /resource_metadata="[^"]+\/\.well-known\/oauth-protected-resource\/mcp", scope="profile email"/);
+  let g = await fetch(base + '/mcp');
+  assert.equal(g.status, 401, 'unauthenticated GET gets the same challenge'); assert.match(g.headers.get('www-authenticate') || '', /scope="profile email"/);
   let bad = await fetch(base + '/mcp', { method : 'POST', headers : { 'content-type' : 'application/json', authorization : 'Bearer nope' }, body : '{}' });
   assert.equal(bad.status, 401);
 });

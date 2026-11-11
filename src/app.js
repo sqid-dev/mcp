@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { env } from 'hono/adapter';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { mcpAuth, protectedResourceHandlerClerk, authServerMetadataHandlerClerk, streamableHttpHandler } from '@clerk/mcp-tools/hono';
+import { protectedResourceHandlerClerk, authServerMetadataHandlerClerk, streamableHttpHandler } from '@clerk/mcp-tools/hono';
 import { registerTools } from './tools.js';
 import { setMinter, configure } from './upstream.js';
 
@@ -35,6 +35,25 @@ export async function clerkVerify(token, c){
   return verifyClerkToken(auth, token);
 }
 
+// Bearer auth for every method on /mcp. A missing or bad token gets 401 with the challenge
+// the MCP spec asks for: where the resource metadata is, and which scopes to request.
+function requireAuth(verify){
+  return async (c, next) => {
+    let e = env(c);
+    let prm = `${new URL(resourceUrl(e)).origin}/.well-known/oauth-protected-resource/mcp`;
+    let challenge = `Bearer resource_metadata="${prm}", scope="${SCOPES.join(' ')}"`;
+    let m = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') || '');
+    if(!m){ return c.json({ error : 'unauthorized', error_description : 'Bearer token required' }, 401, { 'WWW-Authenticate' : challenge }); }
+    let info;
+    try{ info = await verify(m[1], c); }catch(error){ info = undefined; }
+    if(!info){ return c.json({ error : 'invalid_token' }, 401, { 'WWW-Authenticate' : `${challenge}, error="invalid_token"` }); }
+    let missing = SCOPES.filter(sc => Array.isArray(info.scopes) && info.scopes.length && !info.scopes.includes(sc));
+    if(missing.length){ return c.json({ error : 'insufficient_scope' }, 403, { 'WWW-Authenticate' : `${challenge}, error="insufficient_scope"` }); }
+    c.set('mcpAuth', info);
+    await next();
+  };
+}
+
 export function createApp({ verify = clerkVerify, mint } = {}){
   if(mint){ setMinter(mint); }
   let app = new Hono();
@@ -48,7 +67,8 @@ export function createApp({ verify = clerkVerify, mint } = {}){
   app.get('/.well-known/oauth-protected-resource/mcp', (c) => protectedResourceHandlerClerk({ resource : resourceUrl(env(c)), scopes_supported : SCOPES })(c));
   app.get('/.well-known/oauth-authorization-server', authServerMetadataHandlerClerk);
 
-  app.post('/mcp', mcpAuth(verify), streamableHttpHandler(createServer));
-  app.all('/mcp', (c) => c.json({ error : 'method_not_allowed' }, 405));
+  // Auth on every method: an unauthenticated GET gets the same 401 challenge as a POST.
+  // After auth the transport answers GET/DELETE itself (405 in stateless mode).
+  app.on(['POST', 'GET', 'DELETE'], '/mcp', requireAuth(verify), streamableHttpHandler(createServer));
   return app;
 }
