@@ -48,8 +48,13 @@ const fail = (error) => ({ isError : true, content : [{ type : 'text', text : JS
 const userOf = (extra) => extra?.authInfo?.extra?.userId || extra?.authInfo?.userId;
 const siteArg = { site_id : z.string().optional().describe('Site id or name. Omit when the account has one site.') };
 
-function tool(server, name, description, schema, fn){
-  server.registerTool(name, { description, inputSchema : schema }, async (args, extra) => {
+// MCP tool annotations: readOnlyHint lets clients run reads without a write confirmation;
+// destructiveHint marks changes that are hard to undo. None of these tools delete anything.
+const READ  = { readOnlyHint : true,  destructiveHint : false, idempotentHint : true,  openWorldHint : false };
+const WRITE = { readOnlyHint : false, destructiveHint : false, idempotentHint : false, openWorldHint : false };
+
+function tool(server, name, description, schema, fn, annotations = READ){
+  server.registerTool(name, { description, inputSchema : schema, annotations : { title : name, ...annotations } }, async (args, extra) => {
     try{ return await fn(args || {}, userOf(extra), extra); }
     catch(error){ return fail(error); }
   });
@@ -76,7 +81,7 @@ export function registerTools(server){
       { tool : 'webhook_add', when : 'to send visitor intent moments to an agent (event moment)' },
       { tool : 'site_status', when : 'after the snippet is deployed and the site opened once' }
     ]);
-  });
+  }, WRITE);
 
   tool(server, 'snippet_get', 'The install snippet for a site. Paste it before </head>; never hand-write it.', siteArg, async ({ site_id }, t) => { let s = await site(t, site_id); return ok({ site : s, snippet : snippetFor(s.id) }); });
 
@@ -107,7 +112,7 @@ export function registerTools(server){
     let created = await api(t, 'POST', `${base(s.id, ev)}/webhook`, body);
     let id = String(created?._id || created?.id || '');
     return ok({ id, name : nm, event, namespace : ev.namespace, url, site : s }, [{ tool : 'webhook_preview', when : 'to get the exact payload shape while writing the handler' }, { tool : 'webhook_test', when : 'to send a sample delivery to the handler now' }]);
-  });
+  }, WRITE);
 
   tool(server, 'webhook_list', 'Webhook endpoints on a site with health.', siteArg, async ({ site_id }, t) => {
     let s = await site(t, site_id); let hooks = await api(t, 'GET', `/api/sqid/sdks/${s.id}/webhooks`);
@@ -126,7 +131,7 @@ export function registerTools(server){
     let ev = { v2 : /\.v2$/.test(w.namespace) };
     let r = await api(t, 'POST', `${base(s.id, ev)}/webhook/test`, { webhook_id });
     return ok({ delivered : !!r?.response?.success, status : r?.response?.status ?? null, request : r?.request?.payload, response : r?.response?.data });
-  });
+  }, WRITE);
 
   tool(server, 'visitors_list', 'Identified visitors on a site, newest first (25 per page). search matches the start of a name, company or email (3+ chars).', { ...siteArg, search : z.string().min(3).optional(), all_sites : z.boolean().optional(), before : z.number().optional(), seen : z.array(z.string()).optional() }, async ({ site_id, search, all_sites, before, seen }, t) => {
     let q = new URLSearchParams(); if(!all_sites){ q.set('sdk', (await site(t, site_id)).id); } if(search){ q.set('q', search); } if(before){ q.set('before', String(before)); if(seen?.length){ q.set('seen', seen.join(',')); } }
@@ -147,13 +152,19 @@ export function registerTools(server){
     let keys = await api(t, 'GET', `/api/sdks/${s.id}/tokens`); let list = Array.isArray(keys) ? keys : keys?.tokens || [];
     let key = list.find(k => k.name === 'MCP' && k.jwt)?.jwt || (await api(t, 'POST', `/api/sdks/${s.id}/tokens`, { name : 'MCP' }))?.jwt;
     return ok(await publicApi(key, 'POST', '/visitors/enrichment', { ...(email ? { email } : phone ? { phone } : { linkedin_url }), ...(force ? { forceUpdate : true } : {}) }));
+  }, WRITE);
+
+  tool(server, 'signals_status', 'Whether Signals (intent moments) is on for a site, with the account-level state and allowance. Read only.', siteArg, async ({ site_id }, t) => {
+    let s = await site(t, site_id);
+    let st = await api(t, 'GET', '/api/sqid/signals/settings');
+    let mine = (st?.sdks || []).find(x => String(x.id || x.sdk_id) === s.id) || null;
+    return ok({ site : s, enabled : !!mine?.enabled, effective : mine?.effective || mine?.state || (mine?.enabled ? 'on' : 'off'), setting : mine, account : st?.account || null, allowance : st?.allowance || null }, mine?.enabled ? [] : [{ tool : 'signals_set', when : 'with enabled true to start producing moments' }]);
   });
 
-  tool(server, 'signals_set', 'Turn Signals (intent moments) on or off for a site, or read its state with enabled omitted.', { ...siteArg, enabled : z.boolean().optional() }, async ({ site_id, enabled }, t) => {
+  tool(server, 'signals_set', 'Turn Signals (intent moments) on or off for a site. Changes the site; use signals_status to read.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
     let s = await site(t, site_id);
-    if(enabled === undefined){ let st = await api(t, 'GET', '/api/sqid/signals/settings'); return ok({ site : s, setting : (st?.sdks || []).find(x => String(x.id || x.sdk_id) === s.id) || null, account : st?.account || null, allowance : st?.allowance || null }); }
     return ok({ site : s, enabled, result : await api(t, 'PATCH', `/api/sqid/sdks/${s.id}/signals`, { enabled }) }, enabled ? [{ tool : 'webhook_add', when : 'with event "moment" to receive them' }] : []);
-  });
+  }, WRITE);
 
   tool(server, 'moments_list', 'Recent Signals moments (what the engine decided about visitors). Filter by decision (engage|wait|quiet) and kind or group.', { ...siteArg, decision : z.enum(['engage', 'wait', 'quiet']).optional(), kind : z.string().optional(), all_sites : z.boolean().optional(), limit : z.number().int().min(1).max(50).optional() }, async ({ site_id, decision, kind, all_sites, limit }, t) => {
     let q = new URLSearchParams(); if(!all_sites){ q.set('sdk', (await site(t, site_id)).id); } if(decision){ q.set('decision', decision); } if(kind){ q.set('kind', kind); } if(limit){ q.set('limit', String(limit)); }

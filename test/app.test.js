@@ -64,7 +64,9 @@ test('tools: list, whoami forwards the token, webhook_add defaults to identifica
   let transport = new StreamableHTTPClientTransport(new URL(base + '/mcp'), { requestInit : { headers : { authorization : 'Bearer good' } } });
   await client.connect(transport);
   let tools = (await client.listTools()).tools.map(t => t.name).sort();
-  assert.deepEqual(tools, ['billing_status', 'enrich', 'moments_list', 'signals_set', 'site_create', 'site_status', 'sites_list', 'snippet_get', 'visitor_get', 'visitors_list', 'webhook_add', 'webhook_list', 'webhook_preview', 'webhook_test', 'whoami']);
+  assert.deepEqual(tools, ['billing_status', 'enrich', 'moments_list', 'signals_set', 'signals_status', 'site_create', 'site_status', 'sites_list', 'snippet_get', 'visitor_get', 'visitors_list', 'webhook_add', 'webhook_list', 'webhook_preview', 'webhook_test', 'whoami']);
+  let all = (await client.listTools()).tools; let ro = (n) => all.find(t => t.name === n).annotations.readOnlyHint;
+  assert.equal(ro('signals_status'), true); assert.equal(ro('sites_list'), true); assert.equal(ro('signals_set'), false); assert.equal(ro('webhook_add'), false); assert.equal(ro('site_create'), false);
 
   let who = JSON.parse((await client.callTool({ name : 'whoami', arguments : {} })).content[0].text);
   assert.equal(who.data.email, 'dev@acme.com');

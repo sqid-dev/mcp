@@ -21,10 +21,15 @@ visitors, enrich a contact, read moments and billing, as the person who approved
 | `webhook_add` (default event `identification`), `webhook_list`, `webhook_preview`, `webhook_test` | Where identified visitors (or moments, pages, clicks) are delivered |
 | `visitors_list`, `visitor_get` | Identified visitors on demand |
 | `enrich` | Email, phone or LinkedIn URL to a full record |
-| `signals_set`, `moments_list` | Signals on or off, recent moments |
+| `signals_status`, `signals_set`, `moments_list` | Signals state, on or off, recent moments |
 | `billing_status` | Plan, card, balance, this month |
 
 Card entry and plan changes are not tools. They happen in the console or the CLI.
+
+Every tool carries MCP annotations: reads are `readOnlyHint: true`, the five that change
+things (`site_create`, `webhook_add`, `webhook_test`, `enrich`, `signals_set`) are not, and
+nothing is marked destructive because no tool deletes. Clients such as Claude Code use
+these to decide what needs a confirmation.
 
 ## How auth works
 
