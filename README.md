@@ -29,10 +29,17 @@ Card entry and plan changes are not tools. They happen in the console or the CLI
 ## How auth works
 
 Clerk (the instance behind app.sqid.dev) is the OAuth authorization server. This server is
-a resource server at `MCP_RESOURCE_URL`. Clients discover that through
-`/.well-known/oauth-protected-resource`, obtain a token whose audience is that URL, and
-send it on every `POST /mcp`. The server verifies the token with Clerk and forwards it to
-app.sqid.dev; nothing is stored here.
+a resource server at `MCP_RESOURCE_URL`, per the MCP authorization spec: clients discover it
+through `/.well-known/oauth-protected-resource`, register as public clients (Client ID
+Metadata Documents, with dynamic registration as fallback), obtain a token whose audience
+is that URL with PKCE, and send it on every `POST /mcp`. A missing or bad token gets a 401
+with a `WWW-Authenticate` challenge pointing at the metadata.
+
+The client's token is verified here and goes no further. MCP forbids passing it upstream,
+so for calls to app.sqid.dev the server is a Clerk machine (`sqid-mcp`) and mints its own
+short-lived machine token whose claims name the verified person. The console admits that
+machine and acts as that person, logged as such. Nothing is stored on this server beyond
+those tokens in memory.
 
 ## Run
 
@@ -48,8 +55,9 @@ Health: `GET /alive`.
 
 ## Registering with Clerk
 
-In the Clerk dashboard, Agents, MCP servers, add `MCP_RESOURCE_URL` and allow public
-clients to connect. Clerk then issues tokens with that audience and shows the consent
-screen for this server.
+1. Clerk dashboard, Agents, MCP servers: add `MCP_RESOURCE_URL` and allow public clients to
+   connect. Clerk then issues tokens with that audience and shows the consent screen.
+2. Clerk dashboard, Configure, Machines: create a machine `sqid-mcp`; its secret key is
+   `MCP_MACHINE_SECRET_KEY`; its id goes into the console's `clerk.mcpMachineIds`.
 
 MIT

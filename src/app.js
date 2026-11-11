@@ -1,13 +1,15 @@
 // The Express app. Clerk (clerk.sqid.dev) is the OAuth authorization server; this is a
 // resource server at MCP_RESOURCE_URL. Clients discover that through
 // /.well-known/oauth-protected-resource, obtain a token with aud = MCP_RESOURCE_URL,
-// and call POST /mcp (Streamable HTTP). Each tool forwards that token to app.sqid.dev.
+// and call POST /mcp (Streamable HTTP). The token is verified here and goes no further:
+// tools act upstream with the server's own machine credential (see upstream.js).
 
 import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { mcpAuth, protectedResourceHandlerClerk, authServerMetadataHandlerClerk, streamableHttpHandler } from '@clerk/mcp-tools/express';
 import { registerTools } from './tools.js';
+import { setMinter } from './upstream.js';
 
 export const RESOURCE_URL = process.env.MCP_RESOURCE_URL || `http://localhost:${process.env.PORT || 8787}/mcp`;
 const SCOPES = ['profile', 'email'];
@@ -31,7 +33,8 @@ export async function clerkVerify(token, req){
   return verifyClerkToken(auth, token);
 }
 
-export async function createApp({ verify = clerkVerify } = {}){
+export async function createApp({ verify = clerkVerify, mint } = {}){
+  if(mint){ setMinter(mint); }
   let app = express();
   app.set('trust proxy', true);
   app.use(cors({ exposedHeaders : ['WWW-Authenticate'] }));

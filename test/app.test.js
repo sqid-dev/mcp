@@ -27,7 +27,9 @@ before(async () => {
   process.env.CLERK_PUBLISHABLE_KEY = 'pk_test_' + Buffer.from('clerk.example.test$').toString('base64');
   process.env.CLERK_SECRET_KEY = 'sk_test_x';
   const { createApp } = await import('../src/app.js');
-  app = await createApp({ verify : async (token) => token === 'good' ? { token, clientId : 'c1', scopes : ['email', 'profile'], extra : { userId : 'user_1' } } : undefined });
+  let minted = [];
+  app = await createApp({ verify : async (token) => token === 'good' ? { token, clientId : 'c1', scopes : ['email', 'profile'], extra : { userId : 'user_1' } } : undefined, mint : async (userId) => { minted.push(userId); return 'mt_fake_' + userId; } });
+  app.locals.minted = minted;
   server = app.listen(0, '127.0.0.1');
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -54,7 +56,8 @@ test('tools: list, whoami forwards the token, webhook_add defaults to identifica
 
   let who = JSON.parse((await client.callTool({ name : 'whoami', arguments : {} })).content[0].text);
   assert.equal(who.data.email, 'dev@acme.com');
-  assert.equal(seen.find(r => r.path === '/api/sqid/me').auth, 'Bearer good', 'the user token is forwarded as is');
+  assert.equal(seen.find(r => r.path === '/api/sqid/me').auth, 'Bearer mt_fake_user_1', 'upstream sees the machine token for the verified user, never the client token');
+  assert.ok(!seen.some(r => r.auth === 'Bearer good'), 'the MCP client token is never passed through');
 
   let add = JSON.parse((await client.callTool({ name : 'webhook_add', arguments : { url : 'https://acme.test/api/visitors' } })).content[0].text);
   assert.equal(add.data.event, 'identification'); assert.equal(add.data.id, 'wh2');
@@ -74,5 +77,6 @@ test('tools: list, whoami forwards the token, webhook_add defaults to identifica
   assert.equal(JSON.parse(httpBad.content[0].text).ok, true);
   let nf = await client.callTool({ name : 'webhook_test', arguments : { webhook_id : 'nope' } });
   assert.equal(nf.isError, true); assert.equal(JSON.parse(nf.content[0].text).error.code, 'webhook_not_found');
+  assert.deepEqual(app.locals.minted, ['user_1'], 'one machine token per person, cached');
   await client.close();
 });

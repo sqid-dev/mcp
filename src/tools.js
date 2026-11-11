@@ -1,6 +1,8 @@
 // The tools. Same actions as the sqid CLI, same defaults: identification (who is on the
-// site) is the first-class path; moments are one option. Every tool takes the user's
-// token from authInfo and forwards it. Results are JSON text plus `next` hints.
+// site) is the first-class path; moments are one option. Every tool takes the verified
+// user id from authInfo (set by the Clerk token check) and the upstream layer calls
+// app.sqid.dev as that person with the server's own machine token. Results are JSON text
+// plus `next` hints.
 
 import { z } from 'zod';
 import { api, publicApi, UpstreamError } from './upstream.js';
@@ -43,12 +45,12 @@ async function site(token, id){
 
 const ok = (data, next = []) => ({ content : [{ type : 'text', text : JSON.stringify({ ok : true, data, ...(next.length ? { next } : {}) }, null, 2) }] });
 const fail = (error) => ({ isError : true, content : [{ type : 'text', text : JSON.stringify({ ok : false, error : { code : error.code || 'error', message : error.message } }) }] });
-const tokenOf = (extra) => extra?.authInfo?.token;
+const userOf = (extra) => extra?.authInfo?.extra?.userId || extra?.authInfo?.userId;
 const siteArg = { site_id : z.string().optional().describe('Site id or name. Omit when the account has one site.') };
 
 function tool(server, name, description, schema, fn){
   server.registerTool(name, { description, inputSchema : schema }, async (args, extra) => {
-    try{ return await fn(args || {}, tokenOf(extra), extra); }
+    try{ return await fn(args || {}, userOf(extra), extra); }
     catch(error){ return fail(error); }
   });
 }
