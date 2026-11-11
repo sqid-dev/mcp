@@ -16,6 +16,7 @@ visitors, enrich_contact a contact, read moments and billing, as the person who 
 
 | Tool | Does |
 |---|---|
+| `get_started` | The guided entry point: starts the free plan if needed, returns the Sandbox site with its snippet, real sites, and the two paths (Sandbox first, or a real website) |
 | `whoami` | Who approved the connection, role, plan present |
 | `list_sites`, `create_site`, `get_snippet`, `get_site_status` | Sites, the install snippet, the "stream is live" check |
 | `add_webhook` (default event `identification`), `list_webhooks`, `preview_webhook`, `test_webhook` | Where identified visitors (or moments, pages, clicks) are delivered |
@@ -30,6 +31,15 @@ Every tool carries MCP annotations: reads are `readOnlyHint: true`, the five tha
 things (`create_site`, `add_webhook`, `test_webhook`, `enrich_contact`, `set_signals`) are not, and
 nothing is marked destructive because no tool deletes. Clients such as Claude Code use
 these to decide what needs a confirmation.
+
+## Guided setup
+
+The server ships one MCP prompt, `setup` (`/sqid:setup` in Claude Code). It calls
+`get_started`, asks one question (try the Sandbox first, or set up the real website),
+walks that path one tool at a time, and ends with the five-line checklist: signed in,
+site provisioned, script added, webhook wired, stream live. Saying "set up Sqid" without
+the prompt gets the same flow, because the server instructions tell Claude to start with
+`get_started`.
 
 ## How auth works
 

@@ -19,11 +19,31 @@ import { registerTools } from './tools.js';
 import { setMinter, configure } from './upstream.js';
 
 const SCOPES = ['profile', 'email'];
+
+const INSTRUCTIONS = `Sqid identifies the people visiting a website and tells you who they are.
+When someone says "set up Sqid" (or anything like it), call get_started first: it makes sure the account has a plan, creates a Sandbox site if needed, and returns two paths. Then ask the person one question: try it in the Sandbox first, or set up their real website? Walk that path step by step, one tool at a time, saying what each step did.
+The first-class outcome is knowing who is on the site: add_webhook with event "identification" (the default) delivers each identified visitor's full record; list_visitors reads them on demand. Moments (set_signals, add_webhook event "moment") are for agents that react to intent. preview_webhook shows the exact payload before a handler is written; get_site_status confirms the stream is live. The install snippet comes from get_snippet or create_site; it goes before </head> on every page.`;
+
+// MCP prompts: user-invocable starting points (Claude Code shows them as /sqid:setup etc.).
+function registerPrompts(server){
+  server.registerPrompt('setup', {
+    title : 'Set up Sqid',
+    description : 'Guided setup: starts the free plan if needed, offers the Sandbox or a real website, and walks through snippet, webhook and the live check.',
+    argsSchema : {}
+  }, () => ({ messages : [{ role : 'user', content : { type : 'text', text : `Set up Sqid for me. Do it as a short guided walkthrough:
+1. Call get_started. Tell me in one line what the account state is (plan started now or already there, Sandbox present, real sites).
+2. Ask me one question: do I want to try it in the Sandbox first, or set up my real website now? If I say website, ask for its public URL and a name if the project does not make it obvious.
+3. Sandbox path: get_snippet for the Sandbox, show me the snippet and where it goes (before </head> on a local or staging page), then offer to wire a webhook to a catcher URL I give you, preview_webhook so I see the payload, test_webhook to send one, and get_site_status.
+   Website path: create_site, show the snippet and tell me exactly where to paste it in my project (or paste it yourself if you can edit the code), then ask which outcome I want first: know who is visiting (add_webhook, identification is the default), see visitors on demand (list_visitors), send intent moments to an agent (set_signals then add_webhook with event moment), or personalise the page in the browser. Do that one step. Finish with get_site_status.
+4. End with the checklist: Signed in to Sqid / Site provisioned / Script added to layout / Webhook wired -> <path> / Stream is live, marking only what actually happened, and tell me the one next thing to do if anything is still pending (usually: deploy and open the site once).
+Keep each message short. One question at a time. Never hand-write the snippet.` } }] }));
+}
 const resourceUrl = (e) => e.MCP_RESOURCE_URL || `http://localhost:${e.PORT || 8787}/mcp`;
 
 function createServer(){
-  let server = new McpServer({ name : 'sqid', version : '0.1.0' }, { instructions : 'Sqid identifies the people visiting a website. Start with list_sites (or create_site for a new app). The first-class outcome is knowing who is on the site: add_webhook with event "identification" (the default) or list_visitors on demand. Moments (event "moment") are for agents that react to intent. Use preview_webhook to see exact payloads before writing a handler, and get_site_status to confirm the stream is live. Never hand-write the install snippet; get_snippet returns it.' });
+  let server = new McpServer({ name : 'sqid', version : '0.1.0' }, { instructions : INSTRUCTIONS });
   registerTools(server);
+  registerPrompts(server);
   return server;
 }
 

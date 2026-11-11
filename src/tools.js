@@ -53,7 +53,7 @@ const siteArg = { site_id : z.string().optional().describe('Site id or name. Omi
 const READ  = { readOnlyHint : true,  destructiveHint : false, idempotentHint : true,  openWorldHint : false };
 const WRITE = { readOnlyHint : false, destructiveHint : false, idempotentHint : false, openWorldHint : false };
 
-const TITLES = {"list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "whoami": "Who am I"};
+const TITLES = {"get_started": "Get started", "list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "whoami": "Who am I"};
 
 function tool(server, name, description, schema, fn, annotations = READ){
   server.registerTool(name, { title : TITLES[name] || name, description, inputSchema : schema, annotations : { title : TITLES[name] || name, ...annotations } }, async (args, extra) => {
@@ -64,6 +64,27 @@ function tool(server, name, description, schema, fn, annotations = READ){
 
 export function registerTools(server){
   tool(server, 'whoami', 'The account that authorized this connection: email, role, whether it has a plan.', {}, async (_, t) => ok(await api(t, 'GET', '/api/sqid/me')));
+
+  tool(server, 'get_started', 'The first call when someone says "set up Sqid": makes sure the account has a plan (starts the free Developer plan if not, which also creates a Sandbox site), then returns the account state, the Sandbox site with its snippet, any real sites, and the two paths to offer: try the Sandbox first, or set up a real website.', {}, async (_, t) => {
+    let me = await api(t, 'GET', '/api/sqid/me');
+    let started = null;
+    if(!me.account?.hasSubscription){ started = await api(t, 'POST', '/api/sqid/billing/start', {}); }
+    let all = await sites(t);
+    let sandbox = all.find(s => s.sandbox) || null;
+    let real = all.filter(s => !s.sandbox);
+    return ok({
+      account : { email : me.email, plan_started_now : !!started, plan : started?.plan || (me.account?.hasSubscription ? 'existing' : null) },
+      sandbox : sandbox ? { ...sandbox, snippet : snippetFor(sandbox.id), note : 'The Sandbox is a test site: page views and events flow, nobody is identified and nothing is charged. Put the snippet on a local or staging page to see the SDK connect.' } : null,
+      sites : real,
+      paths : [
+        { id : 'sandbox', title : 'Try it in the Sandbox first', steps : ['get_snippet for the Sandbox site, paste it in a local or staging page, open the page', 'add_webhook to a public https endpoint (any catcher works), preview_webhook to see the payload, test_webhook to send one', 'get_site_status to confirm the Sandbox connected'] },
+        { id : 'website', title : 'Set up a real website', steps : ['create_site with the site name and public URL', 'paste the snippet before </head> in the layout and deploy', 'ask which outcome they want: identified visitors (add_webhook, default), on-demand visitors (list_visitors), moments to an agent (set_signals + add_webhook event moment), or browser personalisation', 'get_site_status after the first visit: the stream is live'] }
+      ]
+    }, [
+      { tool : 'get_snippet', when : 'to try the Sandbox', args : sandbox ? { site_id : sandbox.id } : undefined },
+      { tool : 'create_site', when : 'to set up a real website' }
+    ]);
+  }, WRITE);
 
   tool(server, 'list_sites', 'Sites on the account (id, name, deployed, connected, sandbox).', {}, async (_, t) => ok(await sites(t), [{ tool : 'get_snippet', when : 'to get a site’s install snippet' }]));
 
