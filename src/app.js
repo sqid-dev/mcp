@@ -35,6 +35,14 @@ export async function clerkVerify(token, c){
   return verifyClerkToken(auth, token);
 }
 
+// Rate limits (Workers Rate Limiting bindings; absent on Node, where this is a no-op).
+// Unauthenticated hits are limited per IP before any work; authenticated calls per person.
+async function limited(binding, key){
+  if(!binding || !key){ return false; }
+  try{ let { success } = await binding.limit({ key }); return !success; }catch(error){ return false; }
+}
+const tooMany = (c) => c.json({ error : 'rate_limited', error_description : 'Too many requests. Slow down and retry.' }, 429, { 'Retry-After' : '10' });
+
 // Bearer auth for every method on /mcp. A missing or bad token gets 401 with the challenge
 // the MCP spec asks for: where the resource metadata is, and which scopes to request.
 function requireAuth(verify){
@@ -42,6 +50,8 @@ function requireAuth(verify){
     let e = env(c);
     let prm = `${new URL(resourceUrl(e)).origin}/.well-known/oauth-protected-resource/mcp`;
     let challenge = `Bearer resource_metadata="${prm}", scope="${SCOPES.join(' ')}"`;
+    let ip = c.req.header('cf-connecting-ip') || 'unknown';
+    if(await limited(e.RL_IP, ip)){ return tooMany(c); }
     let m = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') || '');
     if(!m){ return c.json({ error : 'unauthorized', error_description : 'Bearer token required' }, 401, { 'WWW-Authenticate' : challenge }); }
     let info;
@@ -49,6 +59,7 @@ function requireAuth(verify){
     if(!info){ return c.json({ error : 'invalid_token' }, 401, { 'WWW-Authenticate' : `${challenge}, error="invalid_token"` }); }
     let missing = SCOPES.filter(sc => Array.isArray(info.scopes) && info.scopes.length && !info.scopes.includes(sc));
     if(missing.length){ return c.json({ error : 'insufficient_scope' }, 403, { 'WWW-Authenticate' : `${challenge}, error="insufficient_scope"` }); }
+    if(await limited(e.RL_USER, info.extra?.userId || info.userId || ip)){ return tooMany(c); }
     c.set('mcpAuth', info);
     await next();
   };

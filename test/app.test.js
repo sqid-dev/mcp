@@ -48,6 +48,15 @@ test('metadata: protected resource points at the resource URL; no token is 401 w
   assert.equal(bad.status, 401);
 });
 
+test('rate limit: a tripped per-IP limiter answers 429 before auth', async () => {
+  const { createApp } = await import('../src/app.js');
+  let a = createApp({ verify : async () => undefined });
+  let res = await a.request('http://x/mcp', { method : 'POST', headers : { 'cf-connecting-ip' : '1.2.3.4' } }, { RL_IP : { limit : async () => ({ success : false }) } });
+  assert.equal(res.status, 429);
+  let ok = await a.request('http://x/mcp', { method : 'POST', headers : { 'cf-connecting-ip' : '1.2.3.4' } }, { RL_IP : { limit : async () => ({ success : true }) } });
+  assert.equal(ok.status, 401, 'under the limit the normal challenge follows');
+});
+
 test('tools: list, whoami forwards the token, webhook_add defaults to identification, preview, visitors_list', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');

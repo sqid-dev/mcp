@@ -10,6 +10,11 @@
     "SQID_API": "https://app.sqid.dev",
     "SQID_PUBLIC_API": "https://app.asksquid.ai/api/v1"
   },
-  "routes": [{ "pattern": "mcp.sqid.dev", "custom_domain": true }]
+  "routes": [{ "pattern": "mcp.sqid.dev", "custom_domain": true }],
+  // Rate limits: per IP for anything (incl. unauthenticated probes), per signed-in person for tool calls.
+  "ratelimits": [
+    { "name": "RL_IP",   "namespace_id": "1101", "simple": { "limit": 120, "period": 60 } },
+    { "name": "RL_USER", "namespace_id": "1102", "simple": { "limit": 240, "period": 60 } }
+  ]
   // Secrets, set once with `wrangler secret put`: CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY, MCP_MACHINE_SECRET_KEY
 }

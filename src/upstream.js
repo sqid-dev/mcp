@@ -17,7 +17,8 @@ export function setMinter(fn){ _mint = fn; }
 async function clerkMint(userId){
   const { createClerkClient } = await import('@clerk/backend');
   let clerk = createClerkClient({ secretKey : cfg.CLERK_SECRET_KEY });
-  let t = await clerk.m2m.createToken({ machineSecretKey : cfg.MCP_MACHINE_SECRET_KEY, secondsUntilExpiration : TOKEN_TTL_S, claims : { acting_user : userId } });
+  // JWT format: the console verifies it against Clerk's JWKS locally, no Clerk round trip per call.
+  let t = await clerk.m2m.createToken({ machineSecretKey : cfg.MCP_MACHINE_SECRET_KEY, secondsUntilExpiration : TOKEN_TTL_S, tokenFormat : 'jwt', claims : { acting_user : userId } });
   return t.token;
 }
 
