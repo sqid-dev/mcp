@@ -63,7 +63,7 @@ function tool(server, name, description, schema, fn, annotations = READ){
 }
 
 export function registerTools(server){
-  tool(server, 'whoami', 'Who authorized this connection: email, role, whether the account has a plan.', {}, async (_, t) => ok(await api(t, 'GET', '/api/sqid/me')));
+  tool(server, 'whoami', 'The account that authorized this connection: email, role, whether it has a plan.', {}, async (_, t) => ok(await api(t, 'GET', '/api/sqid/me')));
 
   tool(server, 'list_sites', 'Sites on the account (id, name, deployed, connected, sandbox).', {}, async (_, t) => ok(await sites(t), [{ tool : 'get_snippet', when : 'to get a site’s install snippet' }]));
 
@@ -78,14 +78,14 @@ export function registerTools(server){
     let existing = (await sites(t)).find(s => !s.sandbox && s.name?.toLowerCase() === name.toLowerCase());
     let id = existing?.id;
     if(!id){ let created = await api(t, 'POST', '/api/projects', { name, site_origins : o, product_origins : o, avatar_index : 1 }); id = String(created?._id || created?.id); }
-    return ok({ site : { id, name, origins : o }, reused_existing : !!existing, plan_started : started?.plan || undefined, snippet : snippetFor(id), paste : 'Paste the snippet before </head> on every page. Never hand-write it.' }, [
+    return ok({ site : { id, name, origins : o }, reused_existing : !!existing, plan_started : started?.plan || undefined, snippet : snippetFor(id), paste : 'The snippet goes before </head> on every page of the site.' }, [
       { tool : 'add_webhook', when : 'to be told who each identified visitor is (event identification, the default)' },
       { tool : 'add_webhook', when : 'to send visitor intent moments to an agent (event moment)' },
       { tool : 'get_site_status', when : 'after the snippet is deployed and the site opened once' }
     ]);
   }, WRITE);
 
-  tool(server, 'get_snippet', 'The install snippet for a site. Paste it before </head>; never hand-write it.', siteArg, async ({ site_id }, t) => { let s = await site(t, site_id); return ok({ site : s, snippet : snippetFor(s.id) }); });
+  tool(server, 'get_snippet', 'The install snippet for a site: the one script tag that goes before </head> on every page of the site.', siteArg, async ({ site_id }, t) => { let s = await site(t, site_id); return ok({ site : s, snippet : snippetFor(s.id) }); });
 
   tool(server, 'get_site_status', 'Health of a site: deployed (page views seen), connected, webhooks and their health. The "stream is live" check.', siteArg, async ({ site_id }, t) => {
     let s = await site(t, site_id);
@@ -100,7 +100,7 @@ export function registerTools(server){
     ] });
   });
 
-  tool(server, 'add_webhook', 'Create a webhook endpoint. Default event "identification": the full record of each identified visitor (who is on the site). "moment": Signals intent moments for an agent. Also "page", "click". Endpoint must be public https.', {
+  tool(server, 'add_webhook', 'Create a webhook endpoint on a site. Events: "identification" (default; the full record of each identified visitor), "moment" (Signals intent moments), "page" (page views), "click" (tracked clicks). The endpoint must be a public https URL. Payload shapes: https://docs.sqid.dev/console/webhooks', {
     ...siteArg,
     url   : z.string().url().describe('Public https URL of the handler'),
     event : z.enum(['identification', 'moment', 'page', 'click']).default('identification'),
@@ -121,7 +121,7 @@ export function registerTools(server){
     return ok((Array.isArray(hooks) ? hooks : hooks?.webhooks || []).map(h => ({ id : h.id, name : h.name, event : Object.entries(EVENTS).find(([, e]) => e.namespace === h.namespace)?.[0] || h.namespace, url : h.url, enabled : h.enabled, health : h.health?.status, totals : h.totals })));
   });
 
-  tool(server, 'preview_webhook', 'A sample payload for an event, exactly as this site would deliver it. Nothing is sent. Generate the handler from this.', { ...siteArg, event : z.enum(['identification', 'moment', 'page', 'click']).default('identification') }, async ({ site_id, event = 'identification' }, t) => {
+  tool(server, 'preview_webhook', 'A sample payload for an event, exactly as this site would deliver it to a webhook endpoint. Nothing is sent.', { ...siteArg, event : z.enum(['identification', 'moment', 'page', 'click']).default('identification') }, async ({ site_id, event = 'identification' }, t) => {
     let s = await site(t, site_id); let ev = EVENTS[event];
     return ok({ event, namespace : ev.namespace, payload : await api(t, 'POST', `${base(s.id, ev)}/webhook/preview`, ev.v2 ? { namespace : ev.namespace } : { namespace : ev.namespace, source : { settings : settingsFor(ev.namespace) } }) });
   });
@@ -163,7 +163,7 @@ export function registerTools(server){
     return ok({ site : s, enabled : !!mine?.enabled, effective : mine?.effective || mine?.state || (mine?.enabled ? 'on' : 'off'), setting : mine, account : st?.account || null, allowance : st?.allowance || null }, mine?.enabled ? [] : [{ tool : 'set_signals', when : 'with enabled true to start producing moments' }]);
   });
 
-  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. Changes the site; use get_signals_status to read.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
+  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. get_signals_status reads the current state.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
     let s = await site(t, site_id);
     return ok({ site : s, enabled, result : await api(t, 'PATCH', `/api/sqid/sdks/${s.id}/signals`, { enabled }) }, enabled ? [{ tool : 'add_webhook', when : 'with event "moment" to receive them' }] : []);
   }, WRITE);
@@ -174,7 +174,7 @@ export function registerTools(server){
     return ok({ moments : r?.events || [], next_cursor : r?.next || null, kinds : r?.kinds });
   });
 
-  tool(server, 'get_billing_status', 'Plan, card on file, balance, auto-reload and this month’s identifications. Card entry and plan changes happen in the console or the sqid CLI, never here.', {}, async (_, t) => {
+  tool(server, 'get_billing_status', 'Plan, card on file, balance, auto-reload and this month’s identifications. Read only; card entry and plan changes are done in the Sqid console.', {}, async (_, t) => {
     let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing'), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
     let card = (overview?.cards || []).find(c => c.default) || overview?.cards?.[0] || null;
     return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, balance : account?.balance ?? null, auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : 'https://app.sqid.dev/billing' });
