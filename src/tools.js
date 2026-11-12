@@ -132,7 +132,7 @@ export function registerTools(server){
     ] });
   });
 
-  tool(server, 'add_webhook', 'Create a webhook endpoint on a site. Events: "identification" (default; the full record of each identified visitor), "moment" (Signals intent moments), "page" (page views), "click" (tracked clicks). The endpoint must be a public https URL. Payload shapes: https://docs.sqid.dev/console/webhooks', {
+  tool(server, 'add_webhook', 'Create a webhook endpoint on a site. Events: "identification" (default; the full record of each identified visitor), "moment" (every Signals moment with its verdict; act on decision.action "engage"), "page" (an identified visitor opens the site), "click" (an identified visitor clicks an element labelled as a key event or conversion). The endpoint must be a public https URL. Payload shapes: https://docs.sqid.dev/console/webhooks', {
     ...siteArg,
     url   : z.string().url().describe('Public https URL of the handler'),
     event : z.enum(['identification', 'moment', 'page', 'click']).default('identification'),
