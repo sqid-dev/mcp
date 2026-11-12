@@ -195,7 +195,7 @@ export function registerTools(server){
     return ok({ site : s, enabled : !!mine?.enabled, effective : mine?.effective || mine?.state || (mine?.enabled ? 'on' : 'off'), setting : mine, account : st?.account || null, allowance : st?.allowance || null }, mine?.enabled ? [] : [{ tool : 'set_signals', when : 'with enabled true to start producing moments' }]);
   });
 
-  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. get_signals_status reads the current state.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
+  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. On also starts variant-picker tracking in the SDK (sizes, colors, plans; feeds the choosing_options moment). get_signals_status reads the current state.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
     let s = await site(t, site_id);
     return ok({ site : s, enabled, result : await api(t, 'PATCH', `/api/sqid/sdks/${s.id}/signals`, { enabled }) }, enabled ? [{ tool : 'add_webhook', when : 'with event "moment" to receive them' }] : []);
   }, WRITE);
