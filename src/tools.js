@@ -206,9 +206,11 @@ export function registerTools(server){
     return ok({ moments : r?.events || [], next_cursor : r?.next || null, kinds : r?.kinds });
   });
 
-  tool(server, 'get_billing_status', 'Plan, card on file, balance, auto-reload and this month’s identifications. Read only; card entry and plan changes are done in the Sqid console.', {}, async (_, t) => {
+  tool(server, 'get_billing_status', 'Plan, card on file, credits (Developer: $0.25 each, next expiry) or balance, auto-reload and this month’s identifications. Read only; card entry and plan changes are done in the Sqid console.', {}, async (_, t) => {
     let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing'), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
     let card = (overview?.cards || []).find(c => c.default) || overview?.cards?.[0] || null;
-    return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, balance : account?.balance ?? null, auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : 'https://app.sqid.dev/billing' });
+    let cr = account?.credits || null;   // Developer: credits at $0.25 in the billing micro, 12-month expiry
+    let credits = cr ? { available : cr.available, unlimited : cr.unlimited, usd : cr.available == null ? null : (cr.available * cr.cents_per_credit) / 100, next_expiry : cr.next_expiry, welcome : cr.welcome } : null;
+    return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, credits, balance : cr ? undefined : account?.balance ?? null, auto_reload : cr ? cr.auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : 'https://app.sqid.dev/billing' });
   });
 }
