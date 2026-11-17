@@ -16,18 +16,18 @@ visitors, enrich_contact a contact, read moments and billing, as the person who 
 
 | Tool | Does |
 |---|---|
-| `get_started` | The guided entry point: starts the free plan if needed, returns the Sandbox site with its snippet, real sites, and the two paths (Sandbox first, or a real website) |
+| `get_started` | The guided entry point: starts the free pay-as-you-go Developer plan if needed, ensures a Sandbox, and returns the account, a plan line from real billing state, sites with origins, the Playground, the three paths (`own_site`, `embed_oem`, `just_try`) and the three plans |
 | `whoami` | Who approved the connection, role, plan present |
 | `list_sites`, `create_site`, `set_site_origins`, `get_snippet`, `get_site_status` | Sites, their allowed origins, the install snippet, the "stream is live" check |
 | `add_webhook` (default event `identification`), `list_webhooks`, `preview_webhook`, `test_webhook` | Where identified visitors (or moments, pages, clicks) are delivered |
 | `list_visitors`, `get_visitor` | Identified visitors on demand |
-| `enrich_contact` | Email, phone or LinkedIn URL to a full record |
+| `enrich_contact` | Email, phone or LinkedIn URL to a full record (`matched: false` when none; refused on the Sandbox) |
 | `get_signals_status`, `set_signals`, `list_moments` | Signals state, on or off, recent moments |
-| `get_billing_status` | Plan, card, balance, this month |
+| `get_billing_status` | Plan (Developer, OEM Launch, Enterprise), card, credits (dollar value on Developer only), welcome credits, period end and pending downgrade, this month |
 
 Card entry and plan changes are not tools. They happen in the console or the CLI.
 
-Every tool carries MCP annotations: reads are `readOnlyHint: true`, the five that change
+Every tool carries MCP annotations: reads are `readOnlyHint: true`, the seven that change
 things (`get_started`, `create_site`, `set_site_origins`, `add_webhook`, `test_webhook`, `enrich_contact`, `set_signals`) are not, and
 nothing is marked destructive because no tool deletes. Clients such as Claude Code use
 these to decide what needs a confirmation.
@@ -35,11 +35,13 @@ these to decide what needs a confirmation.
 ## Guided setup
 
 The server ships one MCP prompt, `setup` (`/sqid:setup` in Claude Code). It calls
-`get_started`, asks one question (try the Sandbox first, or set up the real website),
-walks that path one tool at a time, and ends with the five-line checklist: signed in,
-site provisioned, script added, webhook wired, stream live. Saying "set up Sqid" without
-the prompt gets the same flow, because the server instructions tell Claude to start with
-`get_started`.
+`get_started`, then asks what Sqid should do: (a) show who visits my website, (b) add
+identification to a product I sell to other businesses (OEM), or (c) just see it work
+(the Playground; the default). It detects what it can instead of asking, asks at most three
+multiple-choice questions, says what will change before each write, never changes a plan
+without an explicit yes, and ends with a checklist of what actually happened. The flow
+matches the CLI skill. Saying "set up Sqid" without the prompt gets the same flow: the
+server instructions are a short router to `get_started` and this prompt.
 
 ## How auth works
 
