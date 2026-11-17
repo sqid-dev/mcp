@@ -31,7 +31,17 @@ export const snippetFor = (sdkId) => `<script>
 })('${sdkId}');
 </script>`;
 
-const siteRow = (p) => ({ id : String(p._id), name : p.name, origins : p.site_origins || p.origins || undefined, enabled : p.enabled !== false, deployed : !!p.state?.deployed, connected : !!p.state?.connected, sandbox : !!p.sandbox, owner : p.owner?.email || null });
+// A site's allowed origins live in its signed config: the `site` claim of the SDK's jwt, comma-separated
+// (platform2 managers/projects/update.js signs it; the console reads it the same way). GET /api/sqid/projects
+// returns that jwt but no origins field.
+export function originsOf(jwt){
+  try{
+    let part = String(jwt).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    let site = JSON.parse(atob(part + '='.repeat((4 - part.length % 4) % 4))).site;
+    return site ? String(site).split(',').map(x => x.trim()).filter(Boolean) : [];
+  }catch(e){ return []; }
+}
+const siteRow = (p) => ({ id : String(p._id), name : p.name, origins : Array.isArray(p.site_origins) ? p.site_origins : originsOf(p.jwt), enabled : p.enabled !== false, deployed : !!p.state?.deployed, connected : !!p.state?.connected, sandbox : !!p.sandbox, owner : p.owner?.email || null });
 
 async function sites(token){ return ((await api(token, 'GET', '/api/sqid/projects')) || []).map(siteRow); }
 async function site(token, id){
@@ -62,10 +72,100 @@ function tool(server, name, description, schema, fn, annotations = READ){
   });
 }
 
+// Prices and plan facts the setup flow states (sqid.dev/pricing; platform2 managers/sqid/billing/pricing.js).
+export const PLANS = [
+  { id : 'developer', name : 'Developer', price : '$0.25 per identified visitor (one credit), pay as you go, no monthly fee',
+    includes : '25 free welcome credits once a card is added (once per person and per card); credits expire after 12 months, oldest first; purchases $5 to $10,000; optional auto-reload refills to a target',
+    fits : 'Your own website or a few sites; you only pay for identified visitors. Starting it is not a commitment.' },
+  { id : 'oem_launch', name : 'OEM Launch', price : '$675/month, 500 identifications a month included',
+    includes : 'credit packs after that: 1,000 for $200, 5,000 for $900, 10,000 for $1,700, 25,000 for $4,000',
+    fits : 'Identification inside a product you sell to other businesses, roughly 1 to 100 customer sites.',
+    upgrade : 'From Developer in the console (Billing) or `sqid plan set oem`; account owner only, card required, terms accepted there.' },
+  { id : 'enterprise', name : 'Enterprise', price : 'custom',
+    fits : 'More than 100 customer sites, or custom terms or volume.', contact : 'https://sqid.dev/pricing (Contact us)' }
+];
+
+export const SANDBOX_FACTS = 'The Sandbox is a test site: every new visitor becomes one of 50 made-up people, it never spends a credit, never produces moments, and enrichment is refused there. For a new test person: the console\'s Forget identity on a Test profile, or run `await squid.anonymouse()` in the page\'s console and reload (a private window usually lands on the same person, because matching is by device). It starts with no allowed origins: set_site_origins with the local or staging address (e.g. http://localhost:3000) lets the snippet load there.';
+
+export const PLAYGROUND = {
+  command : 'npx -y @sqid-dev/playground',
+  url : 'http://localhost:3000',
+  what : 'A demo shop (Driftwood) with a Sqid panel, using this sign-in and the Sandbox. No credits, nothing to install in a project.',
+  what_youll_see : 'You appear as an anonymous visitor, then as a person within a couple of seconds. The panel\'s Start tab shows it happen.',
+  after : 'The panel\'s Go live tab leads to a real site (path own_site).'
+};
+
+const kindOf = (cr, account) => {
+  let k = cr?.plan?.kind && cr.plan.kind !== 'other' ? cr.plan.kind : account?.plan;
+  return k === 'oem' ? 'oem' : k === 'developer' ? 'developer' : k === 'enterprise' ? 'enterprise' : (cr?.plan?.kind === 'other' ? 'other' : null);
+};
+const NAMES = { developer : 'Developer', oem : 'OEM Launch', enterprise : 'Enterprise' };
+
+// One read of the console's billing routes, shaped for get_billing_status and get_started.
+// Developer credits have a dollar value ($0.25 each); OEM Launch credits come from the plan and packs, so
+// they are counted, never valued.
+export function billingView(overview, account, usage){
+  let cr = account?.credits || null;
+  let kind = kindOf(cr, account);
+  let card = (overview?.cards || []).find(c => c.default) || overview?.cards?.[0] || account?.card || null;
+  let st = cr?.plan_state || account?.oem || null;
+  let welcome = cr?.welcome || (account?.welcome ? { credits : null, granted : !!account.welcome.claimed } : null);
+  return {
+    plan : { kind, name : NAMES[kind] || cr?.plan?.name || account?.plan_label || (typeof overview?.plan === 'string' ? overview.plan : overview?.plan?.name) || null, label : account?.plan_label || cr?.plan?.name || null },
+    card : card ? { brand : card.brand, last4 : card.last4 } : null,
+    credits : cr ? {
+      available : cr.available, unlimited : !!cr.unlimited,
+      ...(kind === 'developer' ? { cents_per_credit : cr.cents_per_credit, value_usd : cr.available == null ? null : (cr.available * cr.cents_per_credit) / 100 } : {}),
+      included_per_month : cr.plan?.included_per_month ?? null,
+      used_this_month : cr.used_this_month ?? null,
+      next_expiry : cr.next_expiry || null,
+      ...(kind === 'oem' && cr.packs?.length ? { packs : cr.packs.map(p => ({ credits : p.credits, usd : p.cents / 100 })) } : {})
+    } : null,
+    welcome : kind === 'developer' && welcome ? { credits : welcome.credits || 25, granted : !!welcome.granted } : undefined,
+    plan_state : st ? { period_end : st.period_end || null, downgrade_at : st.downgrade_at || st.cancel_at || null } : null,
+    balance : cr ? undefined : account?.balance ?? null,
+    auto_reload : cr ? cr.auto_reload : account?.auto_reload ?? null,
+    usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null,
+    upgrade_available : account?.upgrade ? !!account.upgrade.available : undefined,
+    add_card_url : card ? undefined : 'https://app.sqid.dev/billing',
+    console_url : 'https://app.sqid.dev/billing'
+  };
+}
+
+// The one-line plan summary get_started returns (from real billing state; nothing invented).
+export function planLine(b, startedNow){
+  let k = b?.plan?.kind;
+  if(k === 'developer'){
+    let w = b.welcome;
+    let tail = w?.granted ? `${b.credits?.available ?? 0} credits left` : `with ${w?.credits || 25} free credits once you add a card`;
+    return `You're on Developer${startedNow ? ' (started just now)' : ''}: pay as you go, $0.25 per identified visitor, ${tail}. No monthly fee, not a commitment.`;
+  }
+  if(k === 'oem'){
+    let used = b.credits?.used_this_month;
+    return `You're on OEM Launch: $675/month, 500 identifications a month included${used != null ? `, ${used} used this month` : ''}${b.plan_state?.downgrade_at ? `; switching to Developer on ${String(b.plan_state.downgrade_at).slice(0, 10)}` : ''}.`;
+  }
+  if(k === 'enterprise'){ return 'You\'re on an Enterprise plan.'; }
+  if(b?.plan?.name){ return `You're on ${b.plan.name}.`; }
+  return startedNow ? 'You\'re on Developer (started just now): pay as you go, $0.25 per identified visitor, with 25 free credits once you add a card. No monthly fee, not a commitment.' : 'Plan details: get_billing_status.';
+}
+
+// The public enrichment route answers 200 `false` when it has no record: no match, no credit used.
+export const enrichResult = (r) => r === false || r == null ? { matched : false, credit_used : false, record : null } : { matched : true, record : r };
+
+// The test route answers with the delivery itself, { success, status, data } (platform2 e1f62e6b);
+// older answers wrapped it as { request, response }. Both are read.
+export const testResult = (r) => ({
+  delivered : !!(r?.success ?? r?.response?.success),
+  status    : r?.status ?? r?.response?.status ?? null,
+  response  : r?.data ?? r?.response?.data ?? null,
+  ...(r?.request?.payload ? { request : r.request.payload } : {}),
+  note      : 'Test sends are not recorded under the webhook\'s deliveries.'
+});
+
 export function registerTools(server){
   tool(server, 'whoami', 'The account that authorized this connection: email, role, whether it has a plan.', {}, async (_, t) => ok(await api(t, 'GET', '/api/sqid/me')));
 
-  tool(server, 'get_started', 'The first call when someone says "set up Sqid": makes sure the account has a plan (starts the free Developer plan if not, which also creates a Sandbox site), then returns the account state, the Sandbox site with its snippet, any real sites, and the two paths to offer: try the Sandbox first, or set up a real website.', {}, async (_, t) => {
+  tool(server, 'get_started', 'Account state and the setup choices, in one call. Makes sure the account has a plan (starts the free, pay-as-you-go Developer plan if it has none: no monthly fee, 25 welcome credits once a card is added) and a Sandbox site. Returns the account, a one-line plan summary from real billing state, whether welcome credits were granted, real sites with their allowed origins, the Sandbox with its snippet, the Playground, the three paths (own_site, embed_oem, just_try) each with what it fits and its next tools, and the three plans (developer, oem_launch, enterprise) with price and fit. The /sqid:setup prompt holds the guided flow.', {}, async (_, t) => {
     let me = await api(t, 'GET', '/api/sqid/me');
     let started = null;
     if(!me.account?.hasSubscription){ started = await api(t, 'POST', '/api/sqid/billing/start', {}); }
@@ -76,21 +176,33 @@ export function registerTools(server){
       try{ let made = await api(t, 'POST', '/api/sqid/sandbox', {}); if(made?.sdk_id){ all = await sites(t); sandbox = all.find(s => s.id === String(made.sdk_id)) || all.find(s => s.sandbox) || null; } }catch(error){ /* no sandbox for this account; the website path still works */ }
     }
     let real = all.filter(s => !s.sandbox);
+    let [overview, account] = await Promise.all([api(t, 'GET', '/api/sqid/billing').catch(() => null), api(t, 'GET', '/api/sqid/billing/account').catch(() => null)]);
+    let b = billingView(overview, account, null);
+    if(!b.plan.kind && started?.plan === 'developer'){ b.plan = { kind : 'developer', name : 'Developer', label : null }; }
+    let sitesLine = real.length ? `${real.length} site${real.length === 1 ? '' : 's'}: ${real.map(s => s.name).join(', ')}` : 'No real sites yet';
     return ok({
-      account : { email : me.email, plan_started_now : !!started, plan : started?.plan || (me.account?.hasSubscription ? 'existing' : null) },
-      sandbox : sandbox ? { ...sandbox, snippet : snippetFor(sandbox.id), origins_set : (sandbox.origins || []).length > 0, note : 'The Sandbox is a test site: events flow, each visitor gets a made-up identity, nothing is charged, nothing reaches a real data source. It starts with no allowed origins: call set_site_origins with the local or staging URL (e.g. http://localhost:3000) before the snippet will load there.' } : null,
+      account : { email : me.email, role : me.role || null, plan_started_now : !!started, plan : b.plan, plan_line : planLine(b, !!started), sites_line : `${sitesLine}${sandbox ? ', plus the Sandbox' : ''}.` },
+      billing : { card_on_file : !!b.card, welcome_credits : b.welcome || null, credits_available : b.credits?.available ?? null, used_this_month : b.credits?.used_this_month ?? null, add_card_url : b.add_card_url, developer_is : 'Pay as you go with free welcome credits; no monthly fee and not a commitment.' },
       sites : real,
+      sandbox : sandbox ? { ...sandbox, snippet : snippetFor(sandbox.id), origins_set : (sandbox.origins || []).length > 0, facts : SANDBOX_FACTS } : null,
+      playground : PLAYGROUND,
       paths : [
-        { id : 'sandbox', title : 'Try it in the Sandbox first', steps : ['no page to paste into, or they just want to see it: run "npx -y @sqid-dev/playground" (demo site + Sqid panel on localhost:3000, uses the Sandbox, no credits) and point them at the panel', 'otherwise ask for the local or staging URL and call set_site_origins on the Sandbox with it', 'get_snippet for the Sandbox site, paste it in that page, open the page', 'add_webhook to a public https endpoint (any catcher works), preview_webhook to see the payload, test_webhook to send one', 'get_site_status to confirm the Sandbox connected'] },
-        { id : 'website', title : 'Set up a real website', steps : ['create_site with the site name and public URL', 'paste the snippet before </head> in the layout and deploy', 'ask which outcome they want: identified visitors (add_webhook, default), on-demand visitors (list_visitors), moments to an agent (set_signals + add_webhook event moment), or browser personalisation', 'get_site_status after the first visit: the stream is live'] }
-      ]
+        { id : 'own_site', choice : 'a', label : 'Show me who\'s visiting my website', fits : 'A website you run; Developer fits, you pay only for identified visitors.',
+          next_tools : ['create_site', 'set_site_origins', 'get_snippet', 'list_visitors', 'add_webhook', 'preview_webhook', 'get_site_status'] },
+        { id : 'embed_oem', choice : 'b', label : 'Add visitor identification to a product I sell to other businesses', fits : 'A product used by other businesses\' sites; OEM Launch for about 1 to 100 customer sites, Enterprise beyond that or for custom terms.',
+          next_tools : ['get_billing_status', 'create_site', 'get_snippet', 'add_webhook', 'preview_webhook', 'get_site_status'], docs : 'https://docs.sqid.dev' },
+        { id : 'just_try', choice : 'c', default : true, label : 'Just let me see it work first', fits : 'No site or project at hand, or a look before deciding; uses the Sandbox, no credits.',
+          next_tools : ['run the Playground command', 'list_visitors (Sandbox)'], playground : PLAYGROUND.command }
+      ],
+      plans : PLANS,
+      identification_first : 'Identified visitors (list_visitors, add_webhook event identification) are the main outcome; moments (set_signals) are optional and need a real site.'
     }, [
-      { tool : 'get_snippet', when : 'to try the Sandbox', args : sandbox ? { site_id : sandbox.id } : undefined },
-      { tool : 'create_site', when : 'to set up a real website' }
+      { tool : 'create_site', when : 'path own_site or embed_oem, for a real site' },
+      { tool : 'get_snippet', when : 'to use the Sandbox on a local or staging page', args : sandbox ? { site_id : sandbox.id } : undefined }
     ]);
   }, WRITE);
 
-  tool(server, 'list_sites', 'Sites on the account (id, name, deployed, connected, sandbox).', {}, async (_, t) => ok(await sites(t), [{ tool : 'get_snippet', when : 'to get a site’s install snippet' }]));
+  tool(server, 'list_sites', 'Sites on the account (id, name, allowed origins, deployed, connected, sandbox).', {}, async (_, t) => ok(await sites(t), [{ tool : 'get_snippet', when : 'to get a site’s install snippet' }]));
 
   tool(server, 'create_site', 'Create a site for a web app and return its install snippet. Starts the free Developer plan first if the account has none.', {
     name : z.string().min(1).max(50).describe('Site name, e.g. the app name'),
@@ -110,11 +222,18 @@ export function registerTools(server){
     ]);
   }, WRITE);
 
-  tool(server, 'set_site_origins', 'Set the allowed origins of a site: the URLs the snippet may load on, e.g. ["https://example.com"] or, for the Sandbox, ["http://localhost:3000"]. Replaces the list.', { ...siteArg, origins : z.array(z.string().url()).min(1) }, async ({ site_id, origins }, t) => {
+  tool(server, 'set_site_origins', 'Allowed origins of a site: the addresses the snippet may load on, e.g. "https://example.com" or, for the Sandbox, "http://localhost:3000". mode "add" (default) keeps the existing origins and adds these; mode "replace" sets exactly this list. Paths are dropped (origin only). The result lists the origins before and after, and any that were removed.', {
+    ...siteArg,
+    origins : z.array(z.string().url()).min(1),
+    mode    : z.enum(['add', 'replace']).default('add').describe('"add" merges with the existing origins (default); "replace" sets exactly this list')
+  }, async ({ site_id, origins, mode = 'add' }, t) => {
     let s = await site(t, site_id);
-    let o = origins.map(u => new URL(u).origin);
+    let before = s.origins || [];
+    let given = origins.map(u => new URL(u).origin);
+    let o = [...new Set(mode === 'replace' ? given : [...before, ...given])];
     let r = await api(t, 'PATCH', `/api/projects/${s.id}`, { name : s.name, site_origins : o, product_origins : o });
-    return ok({ site : { id : s.id, name : s.name }, origins : o, result : r?.site_origins ? undefined : r }, [{ tool : 'get_snippet', when : 'to get the snippet for this site', args : { site_id : s.id } }]);
+    let removed = before.filter(x => !o.includes(x));
+    return ok({ site : { id : s.id, name : s.name }, mode, before, origins : o, added : o.filter(x => !before.includes(x)), removed, result : r?.site_origins || r?._id ? undefined : r }, [{ tool : 'get_snippet', when : 'to get the snippet for this site', args : { site_id : s.id } }]);
   }, WRITE);
 
   tool(server, 'get_snippet', 'The install snippet for a site: the one script tag that goes before </head> on every page of the site.', siteArg, async ({ site_id }, t) => { let s = await site(t, site_id); return ok({ site : s, snippet : snippetFor(s.id) }); });
@@ -158,13 +277,13 @@ export function registerTools(server){
     return ok({ event, namespace : ev.namespace, payload : await api(t, 'POST', `${base(s.id, ev)}/webhook/preview`, ev.v2 ? { namespace : ev.namespace } : { namespace : ev.namespace, source : { settings : settingsFor(ev.namespace) } }) });
   });
 
-  tool(server, 'test_webhook', 'Send a sample delivery to an endpoint now and return what it answered.', { ...siteArg, webhook_id : z.string() }, async ({ site_id, webhook_id }, t) => {
+  tool(server, 'test_webhook', 'Send a sample delivery to an endpoint now and return what it answered (HTTP status and body). Test sends are not recorded in the webhook\'s deliveries log.', { ...siteArg, webhook_id : z.string() }, async ({ site_id, webhook_id }, t) => {
     let s = await site(t, site_id);
     let hooks = await api(t, 'GET', `/api/sqid/sdks/${s.id}/webhooks`); let w = (Array.isArray(hooks) ? hooks : hooks?.webhooks || []).find(h => h.id === webhook_id);
     if(!w){ throw new UpstreamError(404, 'webhook_not_found', 'No such webhook on this site.'); }
     let ev = { v2 : /\.v2$/.test(w.namespace) };
     let r = await api(t, 'POST', `${base(s.id, ev)}/webhook/test`, { webhook_id });
-    return ok({ delivered : !!r?.response?.success, status : r?.response?.status ?? null, request : r?.request?.payload, response : r?.response?.data });
+    return ok(testResult(r));
   }, WRITE);
 
   tool(server, 'list_visitors', 'Identified visitors on a site, newest first (25 per page). search matches the start of a name, company or email (3+ chars).', { ...siteArg, search : z.string().min(3).optional(), all_sites : z.boolean().optional(), before : z.number().optional(), seen : z.array(z.string()).optional() }, async ({ site_id, search, all_sites, before, seen }, t) => {
@@ -180,12 +299,14 @@ export function registerTools(server){
     return ok({ profile, journey });
   });
 
-  tool(server, 'enrich_contact', 'Look a person up by email, phone or LinkedIn URL (exactly one) and return the enriched record. Uses an SDK key for the site, created on first use ("MCP").', { ...siteArg, email : z.string().email().optional(), phone : z.string().optional(), linkedin_url : z.string().url().optional(), force : z.boolean().optional() }, async ({ site_id, email, phone, linkedin_url, force }, t) => {
+  tool(server, 'enrich_contact', 'Look a person up by email, phone or LinkedIn URL (exactly one) and return the enriched record, or matched: false when there is no record (no credit used). Uses the account\'s identification credits; not available on the Sandbox. Refusals come back with a reason (not enough credits, Sandbox, identification off, rate limited). Uses an SDK key for the site, created on first use ("MCP").', { ...siteArg, email : z.string().email().optional(), phone : z.string().optional(), linkedin_url : z.string().url().optional(), force : z.boolean().optional() }, async ({ site_id, email, phone, linkedin_url, force }, t) => {
     if([email, phone, linkedin_url].filter(Boolean).length !== 1){ throw new UpstreamError(400, 'usage', 'Pass exactly one of email, phone, linkedin_url.'); }
     let s = await site(t, site_id);
+    if(s.sandbox){ throw new UpstreamError(400, 'sandbox_not_supported', 'Enrichment is not available on the Sandbox (it only has made-up people). Use a real site.'); }
     let keys = await api(t, 'GET', `/api/sdks/${s.id}/tokens`); let list = Array.isArray(keys) ? keys : keys?.tokens || [];
     let key = list.find(k => k.name === 'MCP' && k.jwt)?.jwt || (await api(t, 'POST', `/api/sdks/${s.id}/tokens`, { name : 'MCP' }))?.jwt;
-    return ok(await publicApi(key, 'POST', '/visitors/enrichment', { ...(email ? { email } : phone ? { phone } : { linkedin_url }), ...(force ? { forceUpdate : true } : {}) }));
+    let r = await publicApi(key, 'POST', '/visitors/enrichment', { ...(email ? { email } : phone ? { phone } : { linkedin_url }), ...(force ? { forceUpdate : true } : {}) });
+    return ok(enrichResult(r));
   }, WRITE);
 
   tool(server, 'get_signals_status', 'Whether Signals (intent moments) is on for a site, with the account-level state and allowance. Read only.', siteArg, async ({ site_id }, t) => {
@@ -195,7 +316,7 @@ export function registerTools(server){
     return ok({ site : s, enabled : !!mine?.enabled, effective : mine?.effective || mine?.state || (mine?.enabled ? 'on' : 'off'), setting : mine, account : st?.account || null, allowance : st?.allowance || null }, mine?.enabled ? [] : [{ tool : 'set_signals', when : 'with enabled true to start producing moments' }]);
   });
 
-  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. On also starts variant-picker tracking in the SDK (sizes, colors, plans; feeds the choosing_options moment). get_signals_status reads the current state.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
+  tool(server, 'set_signals', 'Turn Signals (intent moments) on or off for a site. On also starts variant-picker tracking in the SDK (sizes, colors, plans; feeds the choosing_options moment). The Sandbox never produces moments. get_signals_status reads the current state.', { ...siteArg, enabled : z.boolean() }, async ({ site_id, enabled }, t) => {
     let s = await site(t, site_id);
     return ok({ site : s, enabled, result : await api(t, 'PATCH', `/api/sqid/sdks/${s.id}/signals`, { enabled }) }, enabled ? [{ tool : 'add_webhook', when : 'with event "moment" to receive them' }] : []);
   }, WRITE);
@@ -206,11 +327,8 @@ export function registerTools(server){
     return ok({ moments : r?.events || [], next_cursor : r?.next || null, kinds : r?.kinds });
   });
 
-  tool(server, 'get_billing_status', 'Plan, card on file, credits (Developer: $0.25 each, next expiry) or balance, auto-reload and this month’s identifications. Read only; card entry and plan changes are done in the Sqid console.', {}, async (_, t) => {
-    let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing'), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
-    let card = (overview?.cards || []).find(c => c.default) || overview?.cards?.[0] || null;
-    let cr = account?.credits || null;   // Developer: credits at $0.25 in the billing micro, 12-month expiry
-    let credits = cr ? { available : cr.available, unlimited : cr.unlimited, usd : cr.available == null ? null : (cr.available * cr.cents_per_credit) / 100, next_expiry : cr.next_expiry, welcome : cr.welcome } : null;
-    return ok({ plan : overview?.plan ?? null, card : card ? { brand : card.brand, last4 : card.last4 } : null, credits, balance : cr ? undefined : account?.balance ?? null, auto_reload : cr ? cr.auto_reload : account?.auto_reload ?? null, usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null, add_card_url : card ? undefined : 'https://app.sqid.dev/billing' });
+  tool(server, 'get_billing_status', 'Plan and billing state, read only. Developer: pay as you go, credits at $0.25 each with their dollar value, 25 welcome credits (granted or not), next expiry. OEM Launch: $675/month with 500 identifications a month included, credits from packs (no per-credit dollar value), period end and any pending downgrade. Both: card on file, auto-reload, identifications used this month. Card entry and plan changes happen in the Sqid console (link included).', {}, async (_, t) => {
+    let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing').catch(() => null), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
+    return ok(billingView(overview, account, usage));
   });
 }

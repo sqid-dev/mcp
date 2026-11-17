@@ -44,12 +44,29 @@ export async function api(userId, method, path, body){
     headers : { authorization : `Bearer ${token}`, accept : 'application/json', 'user-agent' : 'sqid-mcp', ...(body ? { 'content-type' : 'application/json' } : {}) },
     body    : body ? JSON.stringify(body) : undefined
   });
-  let data = null; try{ data = await res.json(); }catch(e){ /* not json */ }
+  let { data, text } = await readBody(res);
   if(res.status === 401){ cache.delete(userId); throw new UpstreamError(401, 'unauthorized', 'Sqid did not accept the MCP server’s machine token for this person.'); }
   if(res.status === 403 && data?.clerk_error?.reason === 'reverification-error'){ throw new UpstreamError(403, 'console_only', 'This action needs a fresh second factor and is only available in the console.'); }
-  if(!res.ok){ throw new UpstreamError(res.status, data?.error || `http_${res.status}`, data?.message || data?.error || `${method} ${path} failed (${res.status})`); }
+  if(!res.ok){ throw new UpstreamError(res.status, data?.error || `http_${res.status}`, data?.message || data?.error || text || `${method} ${path} failed (${res.status})`); }
   return data;
 }
+
+// Bodies are read as text first: some routes answer errors in plain text (e.g. the public API's
+// enrichment: 400 "Not enough credits"), and a valid JSON body may be the literal `false`.
+export async function readBody(res){
+  let text = ''; try{ text = await res.text(); }catch(e){ /* no body */ }
+  let data = null; try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
+  return { data, text : (text || '').trim().slice(0, 300) };
+}
+
+// The public API's plain-text refusals, as stable codes and a reason a person can act on.
+const PUBLIC_REASONS = {
+  'Not enough credits'            : ['no_credits', 'Not enough credits. Add credits or turn on auto-reload in the Sqid console (https://app.sqid.dev/billing).'],
+  'Not available on sandbox SDKs' : ['sandbox_not_supported', 'Enrichment is not available on the Sandbox (it only has made-up people). Use a real site.'],
+  'VID off'                       : ['identification_off', 'Identification is turned off for this site on Sqid’s side. Contact Sqid support.'],
+  'Inactive subscription'         : ['subscription_inactive', 'The account’s plan is not active. Check billing in the Sqid console.'],
+  'Reached custom limit'          : ['limit_reached', 'This site has reached its identification limit.']
+};
 
 export async function publicApi(key, method, path, body){
   let res = await fetch(cfg.SQID_PUBLIC_API + path, {
@@ -57,7 +74,13 @@ export async function publicApi(key, method, path, body){
     headers : { authorization : `Bearer ${key}`, accept : 'application/json', 'user-agent' : 'sqid-mcp', ...(body ? { 'content-type' : 'application/json' } : {}) },
     body    : body ? JSON.stringify(body) : undefined
   });
-  let data = null; try{ data = await res.json(); }catch(e){ /* not json */ }
-  if(!res.ok){ throw new UpstreamError(res.status, data?.error || `http_${res.status}`, data?.message || data?.error || `${method} ${path} failed (${res.status})`); }
+  let { data, text } = await readBody(res);
+  if(res.status === 429){ throw new UpstreamError(429, 'rate_limited', data?.message || 'Rate limit exceeded. Wait a moment and retry.'); }
+  if(!res.ok){
+    let reason = data?.message || data?.error || text;
+    let known = PUBLIC_REASONS[reason];
+    if(known){ throw new UpstreamError(res.status, known[0], known[1]); }
+    throw new UpstreamError(res.status, `http_${res.status}`, reason || `${method} ${path} failed (${res.status})`);
+  }
   return data;
 }

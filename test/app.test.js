@@ -5,7 +5,9 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-let upstream, seen = [], app, server, base, started = true, sandboxMade = false;
+let upstream, seen = [], app, server, base, started = true, sandboxMade = false, billingAccount = null;
+const fakeJwt = (claims) => 'h.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.s';
+let sbxOrigins = 'http://localhost:5173';
 
 before(async () => {
   upstream = http.createServer(async (req, res) => {
@@ -16,8 +18,21 @@ before(async () => {
     if(P === '/api/sqid/me'){ return res.end(JSON.stringify({ email : 'dev@acme.com', role : 'owner', account : { hasSubscription : !!started } })); }
     if(P === '/api/sqid/billing/start' && req.method === 'POST'){ started = true; return res.end(JSON.stringify({ started : true, plan : 'developer', sandbox_sdk_id : 'sbx1' })); }
     if(P === '/api/sqid/sandbox' && req.method === 'POST'){ sandboxMade = true; return res.end(JSON.stringify({ sdk_id : 'sbx1', created : true })); }
-    if(P === '/api/projects/sbx1' && req.method === 'PATCH'){ return res.end(JSON.stringify({ _id : 'sbx1', site_origins : JSON.parse(b).site_origins })); }
-    if(P === '/api/sqid/projects'){ return res.end(JSON.stringify([{ _id : 'sdk1', name : 'Acme', state : { deployed : true, connected : true } }, ...(started && sandboxMade ? [{ _id : 'sbx1', name : 'Sandbox', sandbox : true, state : {} }] : [])])); }
+    if(P === '/api/projects/sbx1' && req.method === 'PATCH'){ sbxOrigins = JSON.parse(b).site_origins.join(','); return res.end(JSON.stringify({ _id : 'sbx1' })); }
+    // Like platform2's projectRow: no origins field, the origins are the jwt's `site` claim.
+    if(P === '/api/sqid/projects'){ return res.end(JSON.stringify([{ _id : 'sdk1', name : 'Acme', jwt : fakeJwt({ sdk_id : 'sdk1', site : 'https://acme.test' }), state : { deployed : true, connected : true } }, ...(started && sandboxMade ? [{ _id : 'sbx1', name : 'Sandbox', sandbox : true, jwt : fakeJwt({ site : sbxOrigins }), state : {} }] : [])])); }
+    if(P === '/api/sqid/billing/account'){ return billingAccount ? res.end(JSON.stringify(billingAccount)) : (res.statusCode = 404, res.end('{}')); }
+    if(P === '/api/sqid/billing'){ return res.end(JSON.stringify({ cards : [] })); }
+    if(P === '/api/v2/projects/sdk1/webhook/test'){ return res.end(JSON.stringify({ success : true, status : 204, data : '' })); }
+    if(P === '/api/sdks/sdk1/tokens'){ return res.end(JSON.stringify([{ name : 'MCP', jwt : 'key1' }])); }
+    if(P === '/pub/visitors/enrichment'){
+      let e = JSON.parse(b).email;
+      if(e === 'none@x.test'){ return res.end('false'); }
+      if(e === 'broke@x.test'){ res.statusCode = 400; res.setHeader('content-type', 'text/html; charset=utf-8'); return res.end('Not enough credits'); }
+      if(e === 'rl@x.test'){ res.statusCode = 429; return res.end(JSON.stringify({ message : 'Rate limit exceeded' })); }
+      if(e === 'odd@x.test'){ res.statusCode = 400; res.setHeader('content-type', 'text/plain'); return res.end('Invalid email format'); }
+      return res.end(JSON.stringify({ user : { email : e, name : 'Jo' } }));
+    }
     if(P === '/api/sqid/sdks/sdk1/webhooks'){ return res.end(JSON.stringify([{ id : 'wh1', name : 'x', namespace : 'visitor.identification.created.v2', url : 'https://a.test/h', enabled : true, health : { status : 'healthy' } }])); }
     if(P === '/api/v2/projects/sdk1/webhook' && req.method === 'POST'){ return res.end(JSON.stringify({ _id : 'wh2' })); }
     if(P === '/api/v2/projects/sdk1/webhook/preview'){ return res.end(JSON.stringify({ id : 'evt', data : { visitor : { id : 'v1' } } })); }
@@ -26,6 +41,7 @@ before(async () => {
   });
   await new Promise(r => upstream.listen(0, '127.0.0.1', r));
   process.env.SQID_API = `http://127.0.0.1:${upstream.address().port}`;
+  process.env.SQID_PUBLIC_API = `http://127.0.0.1:${upstream.address().port}/pub`;
   // A publishable key encodes the Clerk frontend API host; the metadata handlers derive the issuer from it.
   process.env.CLERK_PUBLISHABLE_KEY = 'pk_test_' + Buffer.from('clerk.example.test$').toString('base64');
   process.env.CLERK_SECRET_KEY = 'sk_test_x';
@@ -72,16 +88,35 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
   assert.deepEqual(prompts, ['setup']);
   let pr = await client.getPrompt({ name : 'setup', arguments : {} });
   assert.match(pr.messages[0].content.text, /get_started/);
+  assert.match(pr.messages[0].content.text, /\(c\) Just let me see it work first/);
+  assert.match(pr.messages[0].content.text, /explicit yes/);
 
   started = false;
   let gs = JSON.parse((await client.callTool({ name : 'get_started', arguments : {} })).content[0].text);
   assert.equal(gs.data.account.plan_started_now, true, 'no plan: Start free is called');
   assert.equal(gs.data.sandbox.id, 'sbx1', 'no sandbox on the account: POST /api/sqid/sandbox makes one'); assert.match(gs.data.sandbox.snippet, /sbx1/);
   assert.ok(seen.some(r => r.method === 'POST' && r.path === '/api/sqid/sandbox'));
+  assert.deepEqual(gs.data.sandbox.origins, ['http://localhost:5173'], 'origins come from the jwt site claim'); assert.equal(gs.data.sandbox.origins_set, true);
+  assert.deepEqual(gs.data.sites[0].origins, ['https://acme.test']);
+  assert.deepEqual(gs.data.paths.map(p => p.id), ['own_site', 'embed_oem', 'just_try']);
+  assert.equal(gs.data.paths.find(p => p.default).id, 'just_try');
+  assert.deepEqual(gs.data.plans.map(p => p.id), ['developer', 'oem_launch', 'enterprise']);
+  assert.match(gs.data.plans[1].price, /\$675\/month, 500 identifications/);
+  assert.match(gs.data.account.plan_line, /Developer.*pay as you go.*not a commitment/, 'billing unreachable, plan just started: still Developer');
+  assert.match(gs.data.playground.what_youll_see, /anonymous visitor/);
+  // add (default) keeps what was there
   let so = JSON.parse((await client.callTool({ name : 'set_site_origins', arguments : { site_id : 'sbx1', origins : ['http://localhost:3000/some/path'] } })).content[0].text);
-  assert.deepEqual(so.data.origins, ['http://localhost:3000']);
-  assert.deepEqual(seen.filter(r => r.method === 'PATCH' && r.path === '/api/projects/sbx1').pop().body, { name : 'Sandbox', site_origins : ['http://localhost:3000'], product_origins : ['http://localhost:3000'] });
-  assert.deepEqual(gs.data.paths.map(p => p.id), ['sandbox', 'website']);
+  assert.equal(so.data.mode, 'add');
+  assert.deepEqual(so.data.before, ['http://localhost:5173']); assert.deepEqual(so.data.origins, ['http://localhost:5173', 'http://localhost:3000']); assert.deepEqual(so.data.removed, []);
+  assert.deepEqual(seen.filter(r => r.method === 'PATCH' && r.path === '/api/projects/sbx1').pop().body, { name : 'Sandbox', site_origins : ['http://localhost:5173', 'http://localhost:3000'], product_origins : ['http://localhost:5173', 'http://localhost:3000'] });
+  // replace says what it removed
+  let rp = JSON.parse((await client.callTool({ name : 'set_site_origins', arguments : { site_id : 'sbx1', origins : ['http://localhost:3000'], mode : 'replace' } })).content[0].text);
+  assert.deepEqual(rp.data.origins, ['http://localhost:3000']); assert.deepEqual(rp.data.removed, ['http://localhost:5173']);
+  let ls = JSON.parse((await client.callTool({ name : 'list_sites', arguments : {} })).content[0].text);
+  assert.deepEqual(ls.data.find(x => x.id === 'sbx1').origins, ['http://localhost:3000']);
+  assert.ok(!('jwt' in ls.data[0]), 'the jwt itself is not exposed');
+  let sbxEnrich = await client.callTool({ name : 'enrich_contact', arguments : { site_id : 'sbx1', email : 'a@b.test' } });
+  assert.equal(JSON.parse(sbxEnrich.content[0].text).error.code, 'sandbox_not_supported');
   assert.ok(seen.some(r => r.method === 'POST' && r.path === '/api/sqid/billing/start'));
   let gs2 = JSON.parse((await client.callTool({ name : 'get_started', arguments : {} })).content[0].text);
   assert.equal(gs2.data.account.plan_started_now, false, 'second call: plan already there');
@@ -109,8 +144,57 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
 
   let httpBad = await client.callTool({ name : 'add_webhook', arguments : { url : 'https://acme.test/x', event : 'moment' } });
   assert.equal(JSON.parse(httpBad.content[0].text).ok, true);
+  let tw = JSON.parse((await client.callTool({ name : 'test_webhook', arguments : { webhook_id : 'wh1' } })).content[0].text);
+  assert.equal(tw.data.delivered, true, 'bare { success, status, data } is read'); assert.equal(tw.data.status, 204);
+
+  let en = JSON.parse((await client.callTool({ name : 'enrich_contact', arguments : { email : 'jo@x.test' } })).content[0].text);
+  assert.equal(en.data.matched, true); assert.equal(en.data.record.user.email, 'jo@x.test');
+  assert.equal(seen.filter(r => r.path === '/pub/visitors/enrichment').pop().auth, 'Bearer key1');
+  let none = JSON.parse((await client.callTool({ name : 'enrich_contact', arguments : { email : 'none@x.test' } })).content[0].text);
+  assert.deepEqual(none.data, { matched : false, credit_used : false, record : null }, '200 false is no match');
+  let broke = await client.callTool({ name : 'enrich_contact', arguments : { email : 'broke@x.test' } });
+  assert.equal(broke.isError, true); let be = JSON.parse(broke.content[0].text).error; assert.equal(be.code, 'no_credits'); assert.match(be.message, /Not enough credits/);
+  let rl = JSON.parse((await client.callTool({ name : 'enrich_contact', arguments : { email : 'rl@x.test' } })).content[0].text);
+  assert.equal(rl.error.code, 'rate_limited'); assert.match(rl.error.message, /Rate limit exceeded/);
+  let odd = JSON.parse((await client.callTool({ name : 'enrich_contact', arguments : { email : 'odd@x.test' } })).content[0].text);
+  assert.equal(odd.error.message, 'Invalid email format', 'an unknown plain-text reason is passed through');
+
+  billingAccount = { plan : 'oem', credits : { available : 640, unlimited : false, cents_per_credit : 25, plan : { name : 'Sqid OEM Launch', kind : 'oem', included_per_month : 500 }, used_this_month : 120, packs : [{ credits : 1000, cents : 20000 }], plan_state : { plan : 'oem', period_end : '2026-12-01T00:00:00Z', downgrade_at : null }, welcome : { credits : 0, granted : false }, auto_reload : { enabled : false } } };
+  let bs = JSON.parse((await client.callTool({ name : 'get_billing_status', arguments : {} })).content[0].text);
+  assert.equal(bs.data.plan.kind, 'oem'); assert.equal(bs.data.credits.available, 640); assert.ok(!('value_usd' in bs.data.credits), 'OEM credits are not valued at 25 cents');
+  assert.equal(bs.data.plan_state.period_end, '2026-12-01T00:00:00Z'); assert.equal(bs.data.credits.used_this_month, 120);
+  billingAccount = null;
+
   let nf = await client.callTool({ name : 'test_webhook', arguments : { webhook_id : 'nope' } });
   assert.equal(nf.isError, true); assert.equal(JSON.parse(nf.content[0].text).error.code, 'webhook_not_found');
   assert.deepEqual(app.minted, ['user_1'], 'one machine token per person, cached');
   await client.close();
+});
+
+test('INSTRUCTIONS: a short router under the 4,096-character limit, identification first', async () => {
+  const { INSTRUCTIONS } = await import('../src/app.js');
+  assert.ok(INSTRUCTIONS.length < 4096, `INSTRUCTIONS is ${INSTRUCTIONS.length} characters`);
+  assert.match(INSTRUCTIONS.slice(0, 600), /get_started/, 'the setup routing comes first');
+  assert.match(INSTRUCTIONS, /50 made-up people/); assert.match(INSTRUCTIONS, /never the default/);
+});
+
+test('shapes: test result, enrichment, origins, billing view and plan line', async () => {
+  const { testResult, enrichResult, originsOf, billingView, planLine } = await import('../src/tools.js');
+  assert.deepEqual([testResult({ success : true, status : 200, data : 'ok' }).delivered, testResult({ success : true, status : 200 }).status], [true, 200]);
+  assert.deepEqual([testResult({ response : { success : false, status : 500 } }).delivered, testResult({ response : { success : false, status : 500 } }).status], [false, 500], 'the older wrapped shape still reads');
+  assert.equal(testResult({ success : false, status : 0 }).status, 0);
+  assert.equal(enrichResult(false).matched, false); assert.equal(enrichResult({ a : 1 }).matched, true);
+  assert.deepEqual(originsOf('h.' + Buffer.from(JSON.stringify({ site : 'https://a.test,https://www.a.test' })).toString('base64url') + '.s'), ['https://a.test', 'https://www.a.test']);
+  assert.deepEqual(originsOf(undefined), []); assert.deepEqual(originsOf('garbage'), []);
+
+  let dev = billingView({ cards : [] }, { plan : 'developer', credits : { available : 25, cents_per_credit : 25, plan : { name : 'Sqid Developer', kind : 'developer', included_per_month : 0 }, used_this_month : 3, welcome : { credits : 25, granted : true }, plan_state : null, auto_reload : { enabled : false } } }, null);
+  assert.equal(dev.credits.value_usd, 6.25); assert.equal(dev.welcome.granted, true); assert.equal(dev.add_card_url, 'https://app.sqid.dev/billing');
+  assert.match(planLine(dev, false), /Developer: pay as you go, \$0\.25 per identified visitor, 25 credits left/);
+  let fresh = billingView(null, { plan : 'developer', credits : { available : 0, cents_per_credit : 25, plan : { kind : 'developer' }, welcome : { credits : 25, granted : false } } }, null);
+  assert.match(planLine(fresh, true), /with 25 free credits once you add a card\. No monthly fee, not a commitment/);
+  let oem = billingView(null, { plan : 'oem', oem : { period_end : '2026-12-01', cancel_at : '2026-12-01' }, credits : { available : 10, cents_per_credit : 25, plan : { kind : 'oem' }, used_this_month : 7, plan_state : { period_end : '2026-12-01', downgrade_at : '2026-12-01' } } }, null);
+  assert.equal(oem.credits.value_usd, undefined); assert.equal(oem.welcome, undefined);
+  assert.match(planLine(oem), /OEM Launch: \$675\/month, 500 identifications a month included, 7 used this month; switching to Developer on 2026-12-01/);
+  let ent = billingView(null, { plan : 'enterprise', plan_label : 'Acme custom', balance : { units : 5 } }, null);
+  assert.equal(ent.plan.kind, 'enterprise'); assert.equal(ent.credits, null);
 });
