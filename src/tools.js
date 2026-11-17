@@ -82,7 +82,7 @@ export const PLANS = [
     fits : 'Identification inside a product you sell to other businesses, roughly 1 to 100 customer sites.',
     upgrade : 'From Developer in the console (Billing) or `sqid plan set oem`; account owner only, card required, terms accepted there.' },
   { id : 'enterprise', name : 'Enterprise', price : 'custom',
-    fits : 'More than 100 customer sites, or custom terms or volume.', contact : 'https://sqid.dev/pricing (Contact us)' }
+    fits : 'More than 100 customer sites, or custom terms or volume.', contact : 'help@asksquid.ai' }
 ];
 
 export const SANDBOX_FACTS = 'The Sandbox is a test site: every new visitor becomes one of 50 made-up people, it never spends a credit, never produces moments, and enrichment is refused there. For a new test person: the console\'s Forget identity on a Test profile, or run `await squid.anonymouse()` in the page\'s console and reload (a private window usually lands on the same person, because matching is by device). It starts with no allowed origins: set_site_origins with the local or staging address (e.g. http://localhost:3000) lets the snippet load there.';

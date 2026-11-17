@@ -58,7 +58,7 @@ Say 'not sure' and I'll start with (c)."
 
 3. (b) Embed in a product I sell (path embed_oem)
  - Ask "Roughly how many customer sites will use it?" (1 to 10 / 10 to 100 / more than 100 or custom terms).
- - Recommend: 1 to 100: OEM Launch, $675/month with 500 identifications a month included, then credit packs (1,000 for $200, 5,000 for $900, 10,000 for $1,700, 25,000 for $4,000). More than 100 or custom terms: Enterprise, a custom plan; talk to us (https://sqid.dev/pricing). Suggest seeing it work in the Sandbox first.
+ - Recommend: 1 to 100: OEM Launch, $675/month with 500 identifications a month included, then credit packs (1,000 for $200, 5,000 for $900, 10,000 for $1,700, 25,000 for $4,000). More than 100 or custom terms: Enterprise, a custom plan; talk to us at help@asksquid.ai. Suggest seeing it work in the Sandbox first.
  - The upgrade happens in the console's Billing page (or \`sqid plan set oem\`), account owner only, card required. Never upgrade without my explicit yes; give me the link instead.
  - Then the same site steps as (a) for my first customer site or the Sandbox, and point me at https://docs.sqid.dev for the API and embedding.
 
