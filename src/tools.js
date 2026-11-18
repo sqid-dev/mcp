@@ -63,7 +63,7 @@ const siteArg = { site_id : z.string().optional().describe('Site id or name. Omi
 const READ  = { readOnlyHint : true,  destructiveHint : false, idempotentHint : true,  openWorldHint : false };
 const WRITE = { readOnlyHint : false, destructiveHint : false, idempotentHint : false, openWorldHint : false };
 
-const TITLES = {"get_started": "Get started", "set_site_origins": "Set site origins", "list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "whoami": "Who am I"};
+const TITLES = {"get_started": "Get started", "set_site_origins": "Set site origins", "list_sites": "List sites", "create_site": "Create site", "get_site_status": "Site status", "get_snippet": "Get snippet", "add_webhook": "Add webhook", "list_webhooks": "List webhooks", "preview_webhook": "Preview webhook payload", "test_webhook": "Test webhook", "list_visitors": "List visitors", "get_visitor": "Get visitor", "enrich_contact": "Enrich contact", "get_signals_status": "Signals status", "set_signals": "Set Signals", "list_moments": "List moments", "get_billing_status": "Billing status", "add_card": "Add a card (link)", "whoami": "Who am I"};
 
 function tool(server, name, description, schema, fn, annotations = READ){
   server.registerTool(name, { title : TITLES[name] || name, description, inputSchema : schema, annotations : { title : TITLES[name] || name, ...annotations } }, async (args, extra) => {
@@ -350,8 +350,29 @@ export function registerTools(server){
     return ok({ moments : r?.events || [], next_cursor : r?.next || null, kinds : r?.kinds });
   });
 
-  tool(server, 'get_billing_status', 'Plan and billing state, read only. Developer: pay as you go, credits at $0.25 each with their dollar value, 25 welcome credits (granted or not), next expiry. OEM Launch: $675/month with 500 identifications a month included, credits from packs (no per-credit dollar value), period end and any pending downgrade. Both: card on file, auto-reload, identifications used this month. Card entry and plan changes happen in the Sqid console (link included).', {}, async (_, t) => {
-    let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing').catch(() => null), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
-    return ok(billingView(overview, account, usage));
+  tool(server, 'get_billing_status', 'Plan and billing state, read only. Developer: pay as you go, credits at $0.25 each with their dollar value, 25 welcome credits (granted or not), next expiry. OEM Launch: $675/month with 500 identifications a month included, credits from packs (no per-credit dollar value), period end and any pending downgrade. Both: card on file, auto-reload, identifications used this month. Card entry and plan changes happen in the Sqid console (link included).', { after_card : z.boolean().optional().describe('true right after the person saved a card on the add_card link: reads fresh from Stripe'), account : z.string().email().optional().describe('The account\'s owner email, when the person can bill more than one account') }, async ({ after_card, account } = {}, t) => {
+    let q = account ? `?account=${encodeURIComponent(account)}` : '';
+    // A card saved on the card link lands through Stripe's webhook; refresh drops the console's cached view first
+    if(after_card){ await api(t, 'POST', `/api/sqid/billing/refresh${q}`, {}).catch(() => null); }
+    let [overview, acct, usage] = await Promise.all([api(t, 'GET', `/api/sqid/billing${q}`).catch(() => null), api(t, 'GET', `/api/sqid/billing/account${q}`).catch(() => null), api(t, 'GET', `/api/sqid/billing/usage${q}`).catch(() => null)]);
+    return ok(billingView(overview, acct, usage));
   });
+
+  tool(server, 'add_card', 'A one-time link where the person saves a card for a Sqid account. It opens Sqid\'s card form (Stripe\'s secure card field) only in a browser signed in to Sqid as this same person; a forwarded or leaked link does nothing for anyone else. It only saves a card (nothing is charged) and works for 30 minutes. The card is entered on Stripe\'s page, never in chat. On the Developer plan the first card brings 25 free welcome credits (once per person and per card). Account owner or billing admin; someone who can bill several accounts passes account (the owner\'s email; the error lists them). After the person says the card is saved, get_billing_status with after_card: true confirms it.', {
+    account : z.string().email().optional().describe('The account\'s owner email, when the person can bill more than one account')
+  }, async ({ account }, t) => {
+    let q = account ? `?account=${encodeURIComponent(account)}` : '';
+    let r;
+    try{ r = await api(t, 'POST', `/api/sqid/billing/card-link${q}`, {}); }
+    catch(error){
+      if(error.code === 'account_required'){
+        let list = await api(t, 'GET', '/api/sqid/billing/accounts').catch(() => []);
+        // Owner email and role only: an account's name is typed by its owner and must not steer the choice
+        throw new UpstreamError(409, 'account_required', `This person can bill more than one account. Ask them which one (do not choose for them), then call add_card again with account set to that owner email. Accounts: ${(list || []).map(a => `${a.ownerEmail} (${a.role === 'owner' ? 'their own account' : 'they are a billing admin'})`).join('; ')}.`);
+      }
+      throw error;
+    }
+    return ok({ url : r.url, account : r.account, expires_at : r.expires_at, note : `Give the person this link and say it is for the Sqid account ${r.account}. They open it in a browser signed in to Sqid and enter the card in the secure form (it goes to Stripe, never this chat); nothing is charged. It works for 30 minutes.` },
+      [{ tool : 'get_billing_status', when : 'after the person says the card is saved', args : { after_card : true, ...(account ? { account } : {}) } }]);
+  }, WRITE);
 }
