@@ -54,6 +54,7 @@ Say 'not sure' and I'll start with (c)."
  - Which site: if you found a URL in the project, ask "I found {host} in this project. Set that up?" (yes / another site). If not, ask "Which website should we start with? You can add more later."
  - If a website project is open, go straight to the real site. If not, ask "What is your website built with?" (WordPress / Shopify / Squarespace / Wix / Webflow / something else or not sure / I'd rather try a test version first). The test version is the Playground, as in (c).
  - Real site: create_site with the name and URL (it adds the www. or bare twin of the address itself). Put the snippet before </head>: edit the layout file yourself if the project is open; on a website builder, give that builder's steps from https://docs.sqid.dev/sdk/installation#on-a-website-builder, one step per line, and wait while they paste and publish. Add any other address the site runs on (staging, a second domain) with set_site_origins (it adds by default).
+ - Credits: a real site identifies visitors only with credits. If get_started shows no card on file, say: "One more step: Sqid needs a card on file to identify visitors on a real site. Adding one gives you 25 free credits; nothing is charged unless you buy credits or turn on auto-reload." Give billing.add_card_url (it opens the card form; Stripe takes the card, never this chat) and wait for me. Then get_billing_status confirms the card and the 25 credits. If I'd rather not yet, carry on and list it as the next thing to do.
  - Outcome by level: for a developer, add_webhook (event identification) to their endpoint, then preview_webhook so they see the payload, test_webhook to send one. For a non-developer, list_visitors first to show who has visited; a webhook only if they have somewhere to receive it.
  - Finish with get_site_status after the site is deployed and opened once.
  - Plan: recommend, don't ask. Developer fits: pay as you go, $0.25 per identified visitor, 25 free welcome credits once a card is added (get_billing_status shows whether they were granted).
@@ -74,6 +75,7 @@ Say 'not sure' and I'll start with (c)."
  Signed in to Sqid
  Site set up
  Snippet added
+ Card added (25 free credits)   (real site only; the Sandbox needs none)
  Visitors showing, or webhook wired
  Stream is live
 Then at most two next things to do, if anything is pending (usually: publish the site and open it once). Close with how to come back: "Ask me 'is Sqid working?' any time, or run /sqid:setup again." `;

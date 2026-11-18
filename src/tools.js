@@ -146,7 +146,7 @@ export function billingView(overview, account, usage){
     auto_reload : cr ? cr.auto_reload : account?.auto_reload ?? null,
     usage : usage?.identifications?.totals ? { month : usage.month, ...usage.identifications.totals } : null,
     upgrade_available : account?.upgrade ? !!account.upgrade.available : undefined,
-    add_card_url : card ? undefined : 'https://app.sqid.dev/billing',
+    add_card_url : card ? undefined : 'https://app.sqid.dev/billing?add=card',
     console_url : 'https://app.sqid.dev/billing'
   };
 }
