@@ -5,7 +5,7 @@ the [`sqid` CLI](https://github.com/sqid-dev/cli), served as tools. Hosted, Stre
 HTTP, OAuth through Sqid's own sign-in. No API keys to paste.
 
 ```
-claude mcp add --transport http sqid https://mcp.sqid.dev/mcp
+claude mcp add --transport http --scope user sqid https://mcp.sqid.dev/mcp
 ```
 
 Then sign in once: in Claude Code run `/mcp`, pick **sqid** and choose **Authenticate**
