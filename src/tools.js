@@ -358,7 +358,7 @@ export function registerTools(server){
     return ok(billingView(overview, acct, usage));
   });
 
-  tool(server, 'add_card', 'A one-time link where the person saves a card for a Sqid account: it opens Stripe\'s card page, but only in a browser signed in to Sqid as this same person (a forwarded or leaked link does nothing for anyone else). It can only save a card (nothing is charged), works for 30 minutes, and making a new one replaces the old. The card is entered on Stripe\'s page, never in chat. On the Developer plan the first card brings 25 free welcome credits (once per person and per card). Account owner or billing admin; someone who can bill several accounts passes account (the owner\'s email; the error lists them). After the person says the card is saved, get_billing_status with after_card: true confirms it.', {
+  tool(server, 'add_card', 'A one-time link where the person saves a card for a Sqid account. It opens Sqid\'s card form (Stripe\'s secure card field) only in a browser signed in to Sqid as this same person; a forwarded or leaked link does nothing for anyone else. It only saves a card (nothing is charged) and works for 30 minutes. The card is entered on Stripe\'s page, never in chat. On the Developer plan the first card brings 25 free welcome credits (once per person and per card). Account owner or billing admin; someone who can bill several accounts passes account (the owner\'s email; the error lists them). After the person says the card is saved, get_billing_status with after_card: true confirms it.', {
     account : z.string().email().optional().describe('The account\'s owner email, when the person can bill more than one account')
   }, async ({ account }, t) => {
     let q = account ? `?account=${encodeURIComponent(account)}` : '';
@@ -367,11 +367,12 @@ export function registerTools(server){
     catch(error){
       if(error.code === 'account_required'){
         let list = await api(t, 'GET', '/api/sqid/billing/accounts').catch(() => []);
-        throw new UpstreamError(409, 'account_required', `This person can bill more than one account. Ask which one and call add_card again with account set to its owner email: ${(list || []).map(a => `${a.ownerEmail} (${a.role === 'owner' ? 'their own' : 'billing admin'}${a.name ? ', ' + a.name : ''})`).join('; ')}.`);
+        // Owner email and role only: an account's name is typed by its owner and must not steer the choice
+        throw new UpstreamError(409, 'account_required', `This person can bill more than one account. Ask them which one (do not choose for them), then call add_card again with account set to that owner email. Accounts: ${(list || []).map(a => `${a.ownerEmail} (${a.role === 'owner' ? 'their own account' : 'they are a billing admin'})`).join('; ')}.`);
       }
       throw error;
     }
-    return ok({ url : r.url, account : r.account, expires_at : r.expires_at, note : `Give the person this link and say it is for the Sqid account ${r.account}. They open it in a browser signed in to Sqid, enter the card on Stripe's page, and nothing is charged. It works for 30 minutes.` },
+    return ok({ url : r.url, account : r.account, expires_at : r.expires_at, note : `Give the person this link and say it is for the Sqid account ${r.account}. They open it in a browser signed in to Sqid and enter the card in the secure form (it goes to Stripe, never this chat); nothing is charged. It works for 30 minutes.` },
       [{ tool : 'get_billing_status', when : 'after the person says the card is saved', args : { after_card : true, ...(account ? { account } : {}) } }]);
   }, WRITE);
 }
