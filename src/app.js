@@ -68,7 +68,7 @@ Say 'not sure' and I'll start with (c)."
 
 4. (c) Just let me see it work (path just_try)
  - Before it opens, tell me what I'll see (get_started's playground.what_youll_see): I appear as an anonymous visitor, then as a person within a couple of seconds.
- - Run the Playground in the background: npx -y @sqid-dev/playground. Tell me to open http://localhost:3000 and watch the panel on the right: it shows "Anonymous", then a name, title and company. It uses my sign-in and the Sandbox and spends no credits.
+ - Run the Playground in the background: npx -y @sqid-dev/playground. It takes the next free port if 3000 is busy and prints "Open http://localhost:<port>": read that line and give me that address (never assume 3000, and never stop other servers to free a port). It may also open a browser sign-in of its own (the Playground signs in separately from this connection); if so, say so and wait. Tell me to open that address and watch the panel on the right: it shows "Anonymous", then a name, title and company. It uses my sign-in and the Sandbox and spends no credits.
  - Sandbox facts if they come up: every new visitor becomes one of 50 made-up people; no credits, no moments, no enrichment. A new test person: the console's Forget identity, or \`await squid.anonymouse()\` and reload (a private window usually lands on the same person).
  - After: offer "Put Sqid on my site", which goes to (a). (The panel's own "Put Sqid on my site" button does the same in the browser.)
 

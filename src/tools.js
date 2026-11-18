@@ -108,7 +108,7 @@ export const SANDBOX_FACTS = 'The Sandbox is a test site: every new visitor beco
 
 export const PLAYGROUND = {
   command : 'npx -y @sqid-dev/playground',
-  url : 'http://localhost:3000',
+  url : 'http://localhost:3000, or the next free port when 3000 is busy; the Playground prints the address ("Open http://localhost:<port>")',
   what : 'A demo shop (Driftwood) with a Sqid panel, using this sign-in and the Sandbox. No credits, nothing to install in a project.',
   what_youll_see : 'You appear as an anonymous visitor, then as a person within a couple of seconds. The panel on the right shows it happen.',
   after : 'The panel\'s "Put Sqid on my site" button creates a real site (path own_site); "Send this to my app" adds a webhook.'
