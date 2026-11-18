@@ -188,7 +188,7 @@ test('shapes: test result, enrichment, origins, billing view and plan line', asy
   assert.deepEqual(originsOf(undefined), []); assert.deepEqual(originsOf('garbage'), []);
 
   let dev = billingView({ cards : [] }, { plan : 'developer', credits : { available : 25, cents_per_credit : 25, plan : { name : 'Sqid Developer', kind : 'developer', included_per_month : 0 }, used_this_month : 3, welcome : { credits : 25, granted : true }, plan_state : null, auto_reload : { enabled : false } } }, null);
-  assert.equal(dev.credits.value_usd, 6.25); assert.equal(dev.welcome.granted, true); assert.equal(dev.add_card_url, 'https://app.sqid.dev/billing');
+  assert.equal(dev.credits.value_usd, 6.25); assert.equal(dev.welcome.granted, true); assert.equal(dev.add_card_url, 'https://app.sqid.dev/billing?add=card');
   assert.match(planLine(dev, false), /Developer: pay as you go, \$0\.25 per identified visitor, 25 credits left/);
   let fresh = billingView(null, { plan : 'developer', credits : { available : 0, cents_per_credit : 25, plan : { kind : 'developer' }, welcome : { credits : 25, granted : false } } }, null);
   assert.match(planLine(fresh, true), /with 25 free credits once you add a card\. No monthly fee, not a commitment/);
