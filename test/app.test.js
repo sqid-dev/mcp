@@ -23,8 +23,9 @@ before(async () => {
     if(P === '/api/sqid/projects'){ return res.end(JSON.stringify([{ _id : 'sdk1', name : 'Acme', jwt : fakeJwt({ sdk_id : 'sdk1', site : 'https://acme.test' }), state : { deployed : true, connected : true } }, ...(started && sandboxMade ? [{ _id : 'sbx1', name : 'Sandbox', sandbox : true, jwt : fakeJwt({ site : sbxOrigins }), state : {} }] : [])])); }
     if(P === '/api/sqid/billing/account'){ return billingAccount ? res.end(JSON.stringify(billingAccount)) : (res.statusCode = 404, res.end('{}')); }
     if(P === '/api/sqid/billing'){ return res.end(JSON.stringify({ cards : [] })); }
-    if(P === '/api/sqid/billing/card-link' && req.method === 'POST'){ return res.end(JSON.stringify({ url : 'https://checkout.stripe.com/c/pay/cs_test_1', expires_at : '2026-11-18T20:00:00Z', account : 'dev@acme.com' })); }
+    if(P === '/api/sqid/billing/card-link' && req.method === 'POST'){ if(u.searchParams.get('account') === 'nope@x.test'){ res.statusCode = 409; return res.end(JSON.stringify({ error : 'account_required' })); } return res.end(JSON.stringify({ url : 'https://app.sqid.dev/add-card/abcdefghijklmnopqrstuvwxyz012345', expires_at : '2026-11-18T20:00:00Z', account : 'dev@acme.com' })); }
     if(P === '/api/sqid/billing/refresh' && req.method === 'POST'){ return res.end(JSON.stringify({ cards : [] })); }
+    if(P === '/api/sqid/billing/accounts'){ return res.end(JSON.stringify([{ ownerEmail : 'dev@acme.com', role : 'owner' }, { ownerEmail : 'boss@corp.test', role : 'billing_admin', name : 'Corp' }])); }
     if(P === '/api/v2/projects/sdk1/webhook/test'){ return res.end(JSON.stringify({ success : true, status : 204, data : '' })); }
     if(P === '/api/sdks/sdk1/tokens'){ return res.end(JSON.stringify([{ name : 'MCP', jwt : 'key1' }])); }
     if(P === '/pub/visitors/enrichment'){
@@ -169,11 +170,13 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
 
   // add_card: one call to the console's card-link route, no arguments sent, the Stripe link back
   let ac = JSON.parse((await client.callTool({ name : 'add_card', arguments : {} })).content[0].text);
-  assert.ok(ac.data.url.startsWith('https://checkout.stripe.com/'));
+  assert.ok(ac.data.url.startsWith('https://app.sqid.dev/add-card/'), 'a console link bound to the person, not the Stripe page');
   let call = seen.filter(x => x.path === '/api/sqid/billing/card-link').at(-1);
   assert.equal(call.method, 'POST'); assert.deepEqual(call.body, {}, 'nothing from the chat picks the account or customer');
   await client.callTool({ name : 'get_billing_status', arguments : { after_card : true } });
   assert.ok(seen.some(x => x.path === '/api/sqid/billing/refresh' && x.method === 'POST'), 'after_card reads fresh');
+  let amb = await client.callTool({ name : 'add_card', arguments : { account : 'nope@x.test' } });
+  assert.equal(amb.isError, true); assert.match(amb.content[0].text, /account_required/);
 
   let nf = await client.callTool({ name : 'test_webhook', arguments : { webhook_id : 'nope' } });
   assert.equal(nf.isError, true); assert.equal(JSON.parse(nf.content[0].text).error.code, 'webhook_not_found');

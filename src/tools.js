@@ -350,16 +350,28 @@ export function registerTools(server){
     return ok({ moments : r?.events || [], next_cursor : r?.next || null, kinds : r?.kinds });
   });
 
-  tool(server, 'get_billing_status', 'Plan and billing state, read only. Developer: pay as you go, credits at $0.25 each with their dollar value, 25 welcome credits (granted or not), next expiry. OEM Launch: $675/month with 500 identifications a month included, credits from packs (no per-credit dollar value), period end and any pending downgrade. Both: card on file, auto-reload, identifications used this month. Card entry and plan changes happen in the Sqid console (link included).', { after_card : z.boolean().optional().describe('true right after the person saved a card on the add_card link: reads fresh from Stripe') }, async ({ after_card } = {}, t) => {
+  tool(server, 'get_billing_status', 'Plan and billing state, read only. Developer: pay as you go, credits at $0.25 each with their dollar value, 25 welcome credits (granted or not), next expiry. OEM Launch: $675/month with 500 identifications a month included, credits from packs (no per-credit dollar value), period end and any pending downgrade. Both: card on file, auto-reload, identifications used this month. Card entry and plan changes happen in the Sqid console (link included).', { after_card : z.boolean().optional().describe('true right after the person saved a card on the add_card link: reads fresh from Stripe'), account : z.string().email().optional().describe('The account\'s owner email, when the person can bill more than one account') }, async ({ after_card, account } = {}, t) => {
+    let q = account ? `?account=${encodeURIComponent(account)}` : '';
     // A card saved on the card link lands through Stripe's webhook; refresh drops the console's cached view first
-    if(after_card){ await api(t, 'POST', '/api/sqid/billing/refresh', {}).catch(() => null); }
-    let [overview, account, usage] = await Promise.all([api(t, 'GET', '/api/sqid/billing').catch(() => null), api(t, 'GET', '/api/sqid/billing/account').catch(() => null), api(t, 'GET', '/api/sqid/billing/usage').catch(() => null)]);
-    return ok(billingView(overview, account, usage));
+    if(after_card){ await api(t, 'POST', `/api/sqid/billing/refresh${q}`, {}).catch(() => null); }
+    let [overview, acct, usage] = await Promise.all([api(t, 'GET', `/api/sqid/billing${q}`).catch(() => null), api(t, 'GET', `/api/sqid/billing/account${q}`).catch(() => null), api(t, 'GET', `/api/sqid/billing/usage${q}`).catch(() => null)]);
+    return ok(billingView(overview, acct, usage));
   });
 
-  tool(server, 'add_card', 'A one-time, Stripe-hosted page where the person saves a card for their Sqid account, with no sign-in to the console. Returns the link (valid 30 minutes, works once). The card is entered only on Stripe\'s page, never in chat; the link can only save a card (no charge). On the Developer plan the first card brings 25 free welcome credits (once per person and per card). Account owner or billing admin only. After the person says the card is saved, get_billing_status with after_card: true confirms the card and credits.', {}, async (_, t) => {
-    let r = await api(t, 'POST', '/api/sqid/billing/card-link', {});
-    return ok({ url : r.url, expires_at : r.expires_at, account : r.account, note : 'Give the person this link. They enter the card on Stripe\'s page; nothing is charged. It works once and expires in 30 minutes.' },
-      [{ tool : 'get_billing_status', when : 'after the person says the card is saved', args : { after_card : true } }]);
+  tool(server, 'add_card', 'A one-time link where the person saves a card for a Sqid account: it opens Stripe\'s card page, but only in a browser signed in to Sqid as this same person (a forwarded or leaked link does nothing for anyone else). It can only save a card (nothing is charged), works for 30 minutes, and making a new one replaces the old. The card is entered on Stripe\'s page, never in chat. On the Developer plan the first card brings 25 free welcome credits (once per person and per card). Account owner or billing admin; someone who can bill several accounts passes account (the owner\'s email; the error lists them). After the person says the card is saved, get_billing_status with after_card: true confirms it.', {
+    account : z.string().email().optional().describe('The account\'s owner email, when the person can bill more than one account')
+  }, async ({ account }, t) => {
+    let q = account ? `?account=${encodeURIComponent(account)}` : '';
+    let r;
+    try{ r = await api(t, 'POST', `/api/sqid/billing/card-link${q}`, {}); }
+    catch(error){
+      if(error.code === 'account_required'){
+        let list = await api(t, 'GET', '/api/sqid/billing/accounts').catch(() => []);
+        throw new UpstreamError(409, 'account_required', `This person can bill more than one account. Ask which one and call add_card again with account set to its owner email: ${(list || []).map(a => `${a.ownerEmail} (${a.role === 'owner' ? 'their own' : 'billing admin'}${a.name ? ', ' + a.name : ''})`).join('; ')}.`);
+      }
+      throw error;
+    }
+    return ok({ url : r.url, account : r.account, expires_at : r.expires_at, note : `Give the person this link and say it is for the Sqid account ${r.account}. They open it in a browser signed in to Sqid, enter the card on Stripe's page, and nothing is charged. It works for 30 minutes.` },
+      [{ tool : 'get_billing_status', when : 'after the person says the card is saved', args : { after_card : true, ...(account ? { account } : {}) } }]);
   }, WRITE);
 }
