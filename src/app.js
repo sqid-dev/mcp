@@ -24,7 +24,7 @@ const SCOPES = ['profile', 'email'];
 // The step-by-step setup script lives in the `setup` prompt; facts the model acts on come back from get_started.
 export const INSTRUCTIONS = `Sqid identifies the people visiting a website and tells you who they are.
 
-Setup: when someone wants to set up, try or install Sqid (or anything like it), call get_started first, then follow the flow of the setup prompt (/sqid:setup): ask what they want Sqid to do before anything else ((a) see who visits their website, (b) add identification to a product they sell to other businesses, (c) just see it work; default (c)). Ask one multiple-choice question at a time, never ask what you can detect (sign-in, plan, sites, the site URL and framework of an open project), say what will change before any write, and match explanations to how technical the person seems. Never change a plan without an explicit yes.
+Setup: when someone wants to set up, try or install Sqid (or anything like it), call get_started first, then follow the flow of the setup prompt (/sqid:setup): ask what they want Sqid to do before anything else ((a) see who visits their website, (b) add identification to a product they sell to other businesses, (c) just see it work; default (c)). Ask one multiple-choice question at a time, never ask what you can detect (sign-in, plan, sites, the site URL and framework of an open project), say what will change before any write, and match explanations to how technical the person seems. If Sqid is already on the site or in the project, check it with get_site_status instead of creating another. Never change a plan without an explicit yes, and never ask for a card, password or key in chat.
 
 Identification first: knowing who is on the site is the main outcome. list_visitors reads identified visitors on demand; add_webhook with event "identification" (the default) delivers each one's full record, preview_webhook shows the exact payload and test_webhook sends a sample. Moments (set_signals, add_webhook event "moment") are optional, for agents that react to intent, and never the default path.
 
@@ -37,7 +37,9 @@ const SETUP_SCRIPT = `Set up Sqid for me as a short guided walkthrough. Follow t
 Rules for the whole walkthrough:
 - One question at a time, multiple choice, always with a default ("say 'not sure' and I'll pick ..."). Phrase it so the client can show it as a multiple-choice question. At most 3 questions before the first real step.
 - Never ask what you can detect. get_started gives sign-in, plan and sites. If a project is open, look before asking: the site URL (package.json "homepage", env vars like SITE_URL or NEXT_PUBLIC_SITE_URL, vercel.json, CNAME, wrangler config), the framework, and the layout file where </head> lives.
-- Before any write (creating a site, editing a file, adding a webhook, changing origins), say in one line what will change. After each step, one line saying what happened.
+- Already set up? If get_started shows a site for this address, or the open project already has Sqid (a .sqid.json file, or "app.asksquid.ai/tfs/" in a layout), do not create another site or paste a second snippet: say what you found, check it with get_site_status, and continue from whatever is missing.
+- Before any write (creating a site, editing a file, adding a webhook, changing origins), say in one line what will change, naming the file for a code edit. After each step, one line saying what happened.
+- Never ask for a card number, password or key in chat. Cards go in the console; sign-in happens in the browser. If someone pastes a key, do not use it and tell them to delete it in the console.
 - Match my level. A framework project open and technical wording: terse and code-first. No project or plain wording ("my website"): plain language, explain a term once the first time (for example "a webhook, meaning Sqid sends each identified visitor to a web address you own"), make the code edits yourself, and show visitors in chat with list_visitors before suggesting a webhook. Ask "Will you be writing code, or should I handle it?" only if the signals conflict.
 - Never hand-write the snippet. Never upgrade a plan or add a card for me; those need my explicit yes and happen in the console.
 
@@ -50,8 +52,8 @@ Say 'not sure' and I'll start with (c)."
 
 2. (a) My own website (path own_site)
  - Which site: if you found a URL in the project, ask "I found {host} in this project. Set that up?" (yes / another site). If not, ask "Which website should we start with? You can add more later."
- - Ask "Start on the real site, or try a safe test version first (free, made-up visitors)?" Default: the real site when a deployable website project is open; the test version (the Playground, as in (c)) when there is no project or page.
- - Real site: create_site with the name and URL. Put the snippet before </head>: edit the layout file yourself if the project is open, otherwise show exactly where to paste it. Make sure the site's origins include every address it runs on (set_site_origins adds by default).
+ - If a website project is open, go straight to the real site. If not, ask "What is your website built with?" (WordPress / Shopify / Squarespace / Wix / Webflow / something else or not sure / I'd rather try a test version first). The test version is the Playground, as in (c).
+ - Real site: create_site with the name and URL (it adds the www. or bare twin of the address itself). Put the snippet before </head>: edit the layout file yourself if the project is open; on a website builder, give that builder's steps from https://docs.sqid.dev/sdk/installation#on-a-website-builder, one step per line, and wait while they paste and publish. Add any other address the site runs on (staging, a second domain) with set_site_origins (it adds by default).
  - Outcome by level: for a developer, add_webhook (event identification) to their endpoint, then preview_webhook so they see the payload, test_webhook to send one. For a non-developer, list_visitors first to show who has visited; a webhook only if they have somewhere to receive it.
  - Finish with get_site_status after the site is deployed and opened once.
  - Plan: recommend, don't ask. Developer fits: pay as you go, $0.25 per identified visitor, 25 free welcome credits once a card is added (get_billing_status shows whether they were granted).
@@ -59,16 +61,22 @@ Say 'not sure' and I'll start with (c)."
 3. (b) Embed in a product I sell (path embed_oem)
  - Ask "Roughly how many customer sites will use it?" (1 to 10 / 10 to 100 / more than 100 or custom terms).
  - Recommend: 1 to 100: OEM Launch, $675/month with 500 identifications a month included, then credit packs (1,000 for $200, 5,000 for $900, 10,000 for $1,700, 25,000 for $4,000). More than 100 or custom terms: Enterprise, a custom plan; talk to us at help@asksquid.ai. Suggest seeing it work in the Sandbox first.
- - The upgrade happens in the console's Billing page (or \`sqid plan set oem\`), account owner only, card required. Never upgrade without my explicit yes; give me the link instead.
+ - The upgrade happens in the console's Billing page (or \`sqid plan set oem --accept-terms\`, which accepts the OEM Launch addendum), account owner only, card required. Never upgrade without my explicit yes; give me the link instead.
  - Then the same site steps as (a) for my first customer site or the Sandbox, and point me at https://docs.sqid.dev for the API and embedding.
 
 4. (c) Just let me see it work (path just_try)
  - Before it opens, tell me what I'll see (get_started's playground.what_youll_see): I appear as an anonymous visitor, then as a person within a couple of seconds.
- - Run the Playground in the background: npx -y @sqid-dev/playground. Tell me to open http://localhost:3000 and watch the panel's Start tab. It uses my sign-in and the Sandbox and spends no credits.
+ - Run the Playground in the background: npx -y @sqid-dev/playground. Tell me to open http://localhost:3000 and watch the panel on the right: it shows "Anonymous", then a name, title and company. It uses my sign-in and the Sandbox and spends no credits.
  - Sandbox facts if they come up: every new visitor becomes one of 50 made-up people; no credits, no moments, no enrichment. A new test person: the console's Forget identity, or \`await squid.anonymouse()\` and reload (a private window usually lands on the same person).
- - After: offer "Put Sqid on my site", which goes to (a).
+ - After: offer "Put Sqid on my site", which goes to (a). (The panel's own "Put Sqid on my site" button does the same in the browser.)
 
-5. End with the checklist, marking only what actually happened: Signed in to Sqid / Site set up / Snippet added / Visitors showing or webhook wired / Stream is live. Then the one next thing to do, if anything is pending (usually: deploy and open the site once).`;
+5. End with this checklist, ticking only what actually happened (get_site_status decides the last line):
+ Signed in to Sqid
+ Site set up
+ Snippet added
+ Visitors showing, or webhook wired
+ Stream is live
+Then at most two next things to do, if anything is pending (usually: publish the site and open it once). Close with how to come back: "Ask me 'is Sqid working?' any time, or run /sqid:setup again." `;
 
 // MCP prompts: user-invocable starting points (Claude Code shows them as /sqid:setup etc.).
 function registerPrompts(server){

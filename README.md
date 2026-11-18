@@ -8,8 +8,10 @@ HTTP, OAuth through Sqid's own sign-in. No API keys to paste.
 claude mcp add --transport http sqid https://mcp.sqid.dev/mcp
 ```
 
-The first call opens a browser to sign in to Sqid and approve the connection. After
-that the agent can create a site, get the snippet, wire webhooks, list identified
+Then sign in once: in Claude Code run `/mcp`, pick **sqid** and choose **Authenticate**
+(or run `claude mcp login sqid` in a terminal). Your browser opens to sign in to Sqid and
+approve the connection. Then type `/sqid:setup`, or just say "set up Sqid". After that the
+agent can create a site, get the snippet, wire webhooks, list identified
 visitors, enrich_contact a contact, read moments and billing, as the person who approved it.
 
 ## Tools

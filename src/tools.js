@@ -72,6 +72,25 @@ function tool(server, name, description, schema, fn, annotations = READ){
   });
 }
 
+// A public site is usually reached both with and without "www.": add the other one, so a visitor on
+// www.example.com is not refused because the site was created for example.com. Only for https
+// hosts: "www.x.y" adds "x.y", a bare two-label "x.y" adds "www.x.y". Local hosts, IPs and other
+// subdomains are left as given.
+export function withTwins(origins){
+  let out = [...origins];
+  for(let o of origins){
+    try{
+      let u = new URL(o);
+      if(u.protocol !== 'https:' || /^[\d.]+$/.test(u.hostname) || u.hostname === 'localhost'){ continue; }
+      let h = u.hostname, twin = null;
+      if(h.startsWith('www.')){ twin = h.slice(4); }
+      else if(h.split('.').length === 2){ twin = `www.${h}`; }
+      if(twin && twin.includes('.')){ let t = `https://${twin}${u.port ? ':' + u.port : ''}`; if(!out.includes(t)){ out.push(t); } }
+    }catch(error){ /* skip */ }
+  }
+  return out;
+}
+
 // Prices and plan facts the setup flow states (sqid.dev/pricing; platform2 managers/sqid/billing/pricing.js).
 export const PLANS = [
   { id : 'developer', name : 'Developer', price : '$0.25 per identified visitor (one credit), pay as you go, no monthly fee',
@@ -80,7 +99,7 @@ export const PLANS = [
   { id : 'oem_launch', name : 'OEM Launch', price : '$675/month, 500 identifications a month included',
     includes : 'credit packs after that: 1,000 for $200, 5,000 for $900, 10,000 for $1,700, 25,000 for $4,000',
     fits : 'Identification inside a product you sell to other businesses, roughly 1 to 100 customer sites.',
-    upgrade : 'From Developer in the console (Billing) or `sqid plan set oem`; account owner only, card required, terms accepted there.' },
+    upgrade : 'From Developer in the console (Billing) or `sqid plan set oem --accept-terms`; account owner only, card required, terms accepted there.' },
   { id : 'enterprise', name : 'Enterprise', price : 'custom',
     fits : 'More than 100 customer sites, or custom terms or volume.', contact : 'help@asksquid.ai' }
 ];
@@ -91,8 +110,8 @@ export const PLAYGROUND = {
   command : 'npx -y @sqid-dev/playground',
   url : 'http://localhost:3000',
   what : 'A demo shop (Driftwood) with a Sqid panel, using this sign-in and the Sandbox. No credits, nothing to install in a project.',
-  what_youll_see : 'You appear as an anonymous visitor, then as a person within a couple of seconds. The panel\'s Start tab shows it happen.',
-  after : 'The panel\'s Go live tab leads to a real site (path own_site).'
+  what_youll_see : 'You appear as an anonymous visitor, then as a person within a couple of seconds. The panel on the right shows it happen.',
+  after : 'The panel\'s "Put Sqid on my site" button creates a real site (path own_site); "Send this to my app" adds a webhook.'
 };
 
 const kindOf = (cr, account) => {
@@ -204,14 +223,14 @@ export function registerTools(server){
 
   tool(server, 'list_sites', 'Sites on the account (id, name, allowed origins, deployed, connected, sandbox).', {}, async (_, t) => ok(await sites(t), [{ tool : 'get_snippet', when : 'to get a site’s install snippet' }]));
 
-  tool(server, 'create_site', 'Create a site for a web app and return its install snippet. Starts the free Developer plan first if the account has none.', {
+  tool(server, 'create_site', 'Create a site for a web app and return its install snippet. Starts the free Developer plan first if the account has none. A bare domain also gets its www. address (and www. its bare one), since visitors arrive on both.', {
     name : z.string().min(1).max(50).describe('Site name, e.g. the app name'),
     origins : z.array(z.string().url()).min(1).describe('Public origins the snippet will run on, e.g. ["https://example.com"]')
   }, async ({ name, origins }, t) => {
     let me = await api(t, 'GET', '/api/sqid/me');
     let started = null;
     if(!me.account?.hasSubscription){ started = await api(t, 'POST', '/api/sqid/billing/start', {}); }
-    let o = origins.map(u => new URL(u).origin);
+    let o = withTwins([...new Set(origins.map(u => new URL(u).origin))]);
     let existing = (await sites(t)).find(s => !s.sandbox && s.name?.toLowerCase() === name.toLowerCase());
     let id = existing?.id;
     if(!id){ let created = await api(t, 'POST', '/api/projects', { name, site_origins : o, product_origins : o, avatar_index : 1 }); id = String(created?._id || created?.id); }
