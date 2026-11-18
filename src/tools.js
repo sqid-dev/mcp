@@ -93,7 +93,7 @@ export function withTwins(origins){
 
 // Prices and plan facts the setup flow states (sqid.dev/pricing; platform2 managers/sqid/billing/pricing.js).
 export const PLANS = [
-  { id : 'developer', name : 'Developer', price : '$0.25 per identified visitor (one credit), pay as you go, no monthly fee',
+  { id : 'developer', name : 'Developer', price : 'free to start: the Sandbox needs no card, and adding a card gives 25 free real identifications; after that $0.25 per identified visitor (one credit), only when you choose to buy credits; no monthly fee',
     includes : '25 free welcome credits once a card is added (once per person and per card); credits expire after 12 months, oldest first; purchases $5 to $10,000; optional auto-reload refills to a target',
     fits : 'Your own website or a few sites; you only pay for identified visitors. Starting it is not a commitment.' },
   { id : 'oem_launch', name : 'OEM Launch', price : '$675/month, 500 identifications a month included',
@@ -152,12 +152,16 @@ export function billingView(overview, account, usage){
 }
 
 // The one-line plan summary get_started returns (from real billing state; nothing invented).
+// Free first, in the order a person can use it: the Sandbox (free, no card), 25 free real identifications once a
+// card is added, then $0.25 each only after they choose to buy credits. Never lead with the price.
+const FREE_LINE = (n) => `You're on the free Developer plan: no monthly fee, and no card needed to try it. The Sandbox is free with made-up visitors; add a card and your first ${n} real identified visitors are free. After that it's $0.25 each, and nothing is charged until you choose to buy credits.`;
+
 export function planLine(b, startedNow){
   let k = b?.plan?.kind;
   if(k === 'developer'){
     let w = b.welcome;
-    let tail = w?.granted ? `${b.credits?.available ?? 0} credits left` : `with ${w?.credits || 25} free credits once you add a card`;
-    return `You're on Developer${startedNow ? ' (started just now)' : ''}: pay as you go, $0.25 per identified visitor, ${tail}. No monthly fee, not a commitment.`;
+    if(w?.granted){ return `You're on the free Developer plan with ${b.credits?.available ?? 0} credits left. Each identified visitor uses one credit ($0.25); nothing is charged until you buy more credits or turn on auto-reload.`; }
+    return FREE_LINE(w?.credits || 25);
   }
   if(k === 'oem'){
     let used = b.credits?.used_this_month;
@@ -165,7 +169,7 @@ export function planLine(b, startedNow){
   }
   if(k === 'enterprise'){ return 'You\'re on an Enterprise plan.'; }
   if(b?.plan?.name){ return `You're on ${b.plan.name}.`; }
-  return startedNow ? 'You\'re on Developer (started just now): pay as you go, $0.25 per identified visitor, with 25 free credits once you add a card. No monthly fee, not a commitment.' : 'Plan details: get_billing_status.';
+  return startedNow ? FREE_LINE(25) : 'Plan details: get_billing_status.';
 }
 
 // The public enrichment route answers 200 `false` when it has no record: no match, no credit used.

@@ -102,7 +102,7 @@ test('tools: list, whoami forwards the token, add_webhook defaults to identifica
   assert.equal(gs.data.paths.find(p => p.default).id, 'just_try');
   assert.deepEqual(gs.data.plans.map(p => p.id), ['developer', 'oem_launch', 'enterprise']);
   assert.match(gs.data.plans[1].price, /\$675\/month, 500 identifications/);
-  assert.match(gs.data.account.plan_line, /Developer.*pay as you go.*not a commitment/, 'billing unreachable, plan just started: still Developer');
+  assert.match(gs.data.account.plan_line, /^You're on the free Developer plan.*Sandbox is free.*25 real identified visitors are free.*\$0\.25 each.*nothing is charged/, 'billing unreachable, plan just started: still Developer');
   assert.match(gs.data.playground.what_youll_see, /anonymous visitor/);
   // add (default) keeps what was there
   let so = JSON.parse((await client.callTool({ name : 'set_site_origins', arguments : { site_id : 'sbx1', origins : ['http://localhost:3000/some/path'] } })).content[0].text);
@@ -189,9 +189,9 @@ test('shapes: test result, enrichment, origins, billing view and plan line', asy
 
   let dev = billingView({ cards : [] }, { plan : 'developer', credits : { available : 25, cents_per_credit : 25, plan : { name : 'Sqid Developer', kind : 'developer', included_per_month : 0 }, used_this_month : 3, welcome : { credits : 25, granted : true }, plan_state : null, auto_reload : { enabled : false } } }, null);
   assert.equal(dev.credits.value_usd, 6.25); assert.equal(dev.welcome.granted, true); assert.equal(dev.add_card_url, 'https://app.sqid.dev/billing?add=card');
-  assert.match(planLine(dev, false), /Developer: pay as you go, \$0\.25 per identified visitor, 25 credits left/);
+  assert.match(planLine(dev, false), /free Developer plan with 25 credits left.*\(\$0\.25\); nothing is charged/);
   let fresh = billingView(null, { plan : 'developer', credits : { available : 0, cents_per_credit : 25, plan : { kind : 'developer' }, welcome : { credits : 25, granted : false } } }, null);
-  assert.match(planLine(fresh, true), /with 25 free credits once you add a card\. No monthly fee, not a commitment/);
+  assert.match(planLine(fresh, true), /no card needed to try it.*first 25 real identified visitors are free/);
   let oem = billingView(null, { plan : 'oem', oem : { period_end : '2026-12-01', cancel_at : '2026-12-01' }, credits : { available : 10, cents_per_credit : 25, plan : { kind : 'oem' }, used_this_month : 7, plan_state : { period_end : '2026-12-01', downgrade_at : '2026-12-01' } } }, null);
   assert.equal(oem.credits.value_usd, undefined); assert.equal(oem.welcome, undefined);
   assert.match(planLine(oem), /OEM Launch: \$675\/month, 500 identifications a month included, 7 used this month; switching to Developer on 2026-12-01/);
